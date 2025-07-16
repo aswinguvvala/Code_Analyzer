@@ -405,7 +405,7 @@ class VisualCodeAnalyzer:
         return diagrams
     
     def _create_system_flow_diagram(self, visual_report: Dict[str, Any]) -> str:
-        """Create a Mermaid diagram showing the main system flow."""
+        """Create a Safari-compatible Mermaid diagram showing the main system flow."""
         if not visual_report['main_flows']:
             return "graph TD\n    A[\"No main flows detected\"]"
         
@@ -413,29 +413,50 @@ class VisualCodeAnalyzer:
         main_flow = visual_report['main_flows'][0]
         flow_steps = main_flow['flow_steps']
         
+        # Limit steps to prevent Safari overload - be more conservative
+        max_steps = 6
+        if len(flow_steps) > max_steps:
+            flow_steps = flow_steps[:max_steps]
+        
         mermaid_lines = ["graph TD"]
         
         for i, step in enumerate(flow_steps):
-            step_id = f"S{step['step']}"
-            step_label = step['action'].replace('"', "'")
+            # Create safe node ID - use index instead of step number
+            step_id = f"S{i+1}"
             
+            # Clean and shorten labels for better rendering - be more aggressive
+            step_label = step['action'][:20]
+            # Remove problematic characters that can break Mermaid syntax
+            step_label = re.sub(r'["\[\]{}()\-]', '', step_label)
+            step_label = step_label.strip()
+            
+            # Ensure label is not empty
+            if not step_label:
+                step_label = f"Step {i+1}"
+            
+            # Use consistent shapes for Safari compatibility - no styling to avoid conflicts
             if step['type'] == 'entry':
                 mermaid_lines.append(f'    {step_id}["{step_label}"]')
-                mermaid_lines.append(f'    style {step_id} fill:#e1f5fe')
             elif step['type'] == 'import':
                 mermaid_lines.append(f'    {step_id}["{step_label}"]')
-                mermaid_lines.append(f'    style {step_id} fill:#f3e5f5')
             elif step['type'] == 'function_call':
                 mermaid_lines.append(f'    {step_id}["{step_label}"]')
-                mermaid_lines.append(f'    style {step_id} fill:#e8f5e8')
             elif step['type'] == 'conditional':
-                mermaid_lines.append(f'    {step_id}{{{step_label}}}')
-                mermaid_lines.append(f'    style {step_id} fill:#fff3e0')
+                mermaid_lines.append(f'    {step_id}{{"{step_label}"}}')
+            else:
+                mermaid_lines.append(f'    {step_id}["{step_label}"]')
             
             # Connect to next step
             if i < len(flow_steps) - 1:
-                next_step_id = f"S{flow_steps[i+1]['step']}"
+                next_step_id = f"S{i+2}"
                 mermaid_lines.append(f'    {step_id} --> {next_step_id}')
+        
+        # Add note about truncation if needed
+        if len(visual_report['main_flows'][0]['flow_steps']) > max_steps:
+            truncated_count = len(visual_report['main_flows'][0]['flow_steps']) - max_steps
+            truncated_id = f"S{max_steps+1}"
+            mermaid_lines.append(f'    {truncated_id}["...{truncated_count} more steps"]')
+            mermaid_lines.append(f'    S{max_steps} --> {truncated_id}')
         
         return "\n".join(mermaid_lines)
     
@@ -449,26 +470,42 @@ class VisualCodeAnalyzer:
         mermaid_lines = ["graph TD"]
         added_components = set()
         
-        for interaction in interactions[:10]:  # Limit to first 10 interactions
-            from_comp = interaction['from_component'].replace(' ', '_').replace('.', '_')
-            to_comp = interaction['to_component'].replace(' ', '_').replace('.', '_')
+        for i, interaction in enumerate(interactions[:10]):  # Limit to first 10 interactions
+            # Create safe node IDs
+            from_comp = f"C{i*2+1}"
+            to_comp = f"C{i*2+2}"
+            
+            # Clean component names
+            from_name = interaction['from_component'][:15]
+            to_name = interaction['to_component'][:15]
+            
+            # Remove problematic characters
+            from_name = re.sub(r'["\[\]{}()\-]', '', from_name).strip()
+            to_name = re.sub(r'["\[\]{}()\-]', '', to_name).strip()
+            
+            # Ensure names are not empty
+            if not from_name:
+                from_name = f"Component {i*2+1}"
+            if not to_name:
+                to_name = f"Component {i*2+2}"
             
             # Add components if not already added
             if from_comp not in added_components:
-                mermaid_lines.append(f'    {from_comp}["{interaction["from_component"]}"]')
+                mermaid_lines.append(f'{from_comp}["{from_name}"]')
                 added_components.add(from_comp)
             
             if to_comp not in added_components:
-                mermaid_lines.append(f'    {to_comp}["{interaction["to_component"]}"]')
+                mermaid_lines.append(f'{to_comp}["{to_name}"]')
                 added_components.add(to_comp)
             
             # Add interaction
-            mermaid_lines.append(f'    {from_comp} --> {to_comp}')
+            desc = interaction['description'][:30]
+            mermaid_lines.append(f'{from_comp} -->|{desc}| {to_comp}')
         
         return "\n".join(mermaid_lines)
     
     def _create_data_flow_diagram(self, visual_report: Dict[str, Any]) -> str:
-        """Create a Mermaid diagram showing data flow."""
+        """Create a Safari-compatible Mermaid diagram showing data flow."""
         data_flows = visual_report['data_flows']
         
         if not data_flows:
@@ -477,27 +514,46 @@ class VisualCodeAnalyzer:
         mermaid_lines = ["graph TD"]
         node_counter = 1
         
-        for flow in data_flows[:5]:  # Limit to first 5 data flows
-            file_name = Path(flow['file']).stem.replace(' ', '_').replace('.', '_')
+        # Limit to first 2 data flows for Safari compatibility - be more conservative
+        for flow in data_flows[:2]:
+            # Create safe file node ID
+            file_id = f"F{node_counter}"
+            file_name = Path(flow['file']).stem[:10]  # Shorten names more
             
-            # Add inputs
-            for inp in flow['inputs'][:3]:  # Limit to 3 inputs per file
+            # Clean file name
+            file_name = re.sub(r'["\[\]{}()\-]', '', file_name).strip()
+            if not file_name:
+                file_name = f"File {node_counter}"
+            
+            node_counter += 1
+            
+            # Add inputs (limit to 2 for simplicity)
+            for i, inp in enumerate(flow['inputs'][:2]):
                 input_id = f"I{node_counter}"
-                mermaid_lines.append(f'    {input_id}["{inp}"]')
-                mermaid_lines.append(f'    style {input_id} fill:#e3f2fd')
-                mermaid_lines.append(f'    {input_id} --> {file_name}')
+                clean_inp = inp[:12]  # Shorten and clean
+                clean_inp = re.sub(r'["\[\]{}()\-]', '', clean_inp).strip()
+                
+                if not clean_inp:
+                    clean_inp = f"Input {i+1}"
+                
+                mermaid_lines.append(f'    {input_id}["{clean_inp}"]')
+                mermaid_lines.append(f'    {input_id} --> {file_id}')
                 node_counter += 1
             
             # Add the processing file
-            mermaid_lines.append(f'    {file_name}["{Path(flow["file"]).stem}"]')
-            mermaid_lines.append(f'    style {file_name} fill:#f1f8e9')
+            mermaid_lines.append(f'    {file_id}["{file_name}"]')
             
-            # Add outputs
-            for out in flow['outputs'][:3]:  # Limit to 3 outputs per file
+            # Add outputs (limit to 2 for simplicity)
+            for i, out in enumerate(flow['outputs'][:2]):
                 output_id = f"O{node_counter}"
-                mermaid_lines.append(f'    {output_id}["{out}"]')
-                mermaid_lines.append(f'    style {output_id} fill:#fce4ec')
-                mermaid_lines.append(f'    {file_name} --> {output_id}')
+                clean_out = out[:12]  # Shorten and clean
+                clean_out = re.sub(r'["\[\]{}()\-]', '', clean_out).strip()
+                
+                if not clean_out:
+                    clean_out = f"Output {i+1}"
+                
+                mermaid_lines.append(f'    {output_id}["{clean_out}"]')
+                mermaid_lines.append(f'    {file_id} --> {output_id}')
                 node_counter += 1
         
         return "\n".join(mermaid_lines)
@@ -804,7 +860,7 @@ class VisualCodeAnalyzer:
         # Check for common architectural patterns
         if any('api' in name for name in file_names) and any('model' in name for name in file_names):
             return 'API-based / MVC-like'
-        elif any('component' in name for name in file_names) or any('react' in str(detailed_files.values())):
+        elif any('component' in name for name in file_names) or any('react' in str(value) for value in detailed_files.values()):
             return 'Component-based'
         elif len(visual_report['entry_points']) == 1:
             return 'Monolithic script'

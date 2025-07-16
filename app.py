@@ -20,6 +20,507 @@ import git
 from code_quality_analyzer import CodeQualityAnalyzer
 from visual_code_analyzer import VisualCodeAnalyzer
 
+# Check for streamlit-mermaid availability
+try:
+    import streamlit_mermaid as st_mermaid
+    MERMAID_AVAILABLE = True
+    # Test if st_mermaid actually works
+    try:
+        # Check if the main function exists
+        if hasattr(st_mermaid, 'st_mermaid'):
+            MERMAID_FUNCTIONAL = True
+        else:
+            MERMAID_FUNCTIONAL = False
+    except:
+        MERMAID_FUNCTIONAL = False
+except ImportError:
+    MERMAID_AVAILABLE = False
+    MERMAID_FUNCTIONAL = False
+
+def clean_mermaid_diagram(diagram_code: str) -> str:
+    """
+    Clean and validate Mermaid diagram code for better Safari compatibility
+    """
+    if not diagram_code:
+        return ""
+    
+    # Remove any problematic characters
+    cleaned = diagram_code.strip()
+    
+    # Fix common syntax issues
+    cleaned = re.sub(r'\n\s*\n', '\n', cleaned)  # Remove empty lines
+    
+    # Ensure proper line endings
+    lines = cleaned.split('\n')
+    formatted_lines = []
+    
+    for line in lines:
+        line = line.strip()
+        if line:
+            # Skip empty lines
+            if not line:
+                continue
+            
+            # Format graph declaration
+            if line.startswith('graph') or line.startswith('flowchart'):
+                formatted_lines.append(line)
+            else:
+                # Indent all other lines
+                formatted_lines.append('    ' + line)
+    
+    # Validate the diagram has basic structure
+    result = '\n'.join(formatted_lines)
+    
+    # Ensure it starts with graph declaration
+    if not result.startswith('graph') and not result.startswith('flowchart'):
+        result = 'graph TD\n' + result
+    
+    return result
+
+def detect_safari_browser() -> bool:
+    """
+    Detect if the user is using Safari browser
+    """
+    try:
+        # Check session state for user agent
+        user_agent = st.session_state.get('user_agent', '')
+        if 'Safari' in user_agent and 'Chrome' not in user_agent:
+            return True
+        
+        # Fallback: assume Safari if running on macOS and no Chrome detected
+        import platform
+        if platform.system() == 'Darwin':
+            return True
+            
+    except Exception:
+        pass
+    
+    return False
+
+def simplify_diagram_for_safari(diagram_code: str) -> str:
+    """
+    Simplify Mermaid diagram for better Safari compatibility
+    """
+    if not diagram_code:
+        return ""
+    
+    lines = diagram_code.split('\n')
+    simplified_lines = []
+    node_count = 0
+    
+    for line in lines:
+        line = line.strip()
+        if line:
+            # Keep graph declaration
+            if line.startswith('graph') or line.startswith('flowchart'):
+                simplified_lines.append(line)
+                continue
+            
+            # Limit the number of nodes to prevent Safari overload
+            if node_count > 10:  # Even more conservative for Safari
+                if '-->' in line:
+                    continue
+            
+            # Remove styling that can cause Safari issues
+            if line.startswith('style ') or line.startswith('classDef'):
+                continue
+            
+            # Simplify node labels
+            if '[' in line and ']' in line and '-->' not in line:
+                # Shorten long labels
+                start = line.find('[')
+                end = line.find(']')
+                if start < end:
+                    label = line[start+1:end]
+                    # Remove quotes and shorten
+                    label = label.replace('"', '').replace("'", '')
+                    if len(label) > 20:
+                        label = label[:17] + "..."
+                    line = line[:start+1] + f'"{label}"' + line[end:]
+                node_count += 1
+            
+            simplified_lines.append(line)
+    
+    return '\n'.join(simplified_lines)
+
+def create_plotly_diagram_from_mermaid(mermaid_code: str, title: str) -> Optional[go.Figure]:
+    """
+    Create a Plotly diagram from Mermaid code as a fallback
+    """
+    try:
+        # Parse the Mermaid code to extract nodes and connections
+        nodes = []
+        edges = []
+        node_positions = {}
+        
+        lines = mermaid_code.split('\n')
+        for line in lines:
+            line = line.strip()
+            
+            # Extract node definitions
+            if '[' in line and ']' in line and '-->' not in line:
+                # Extract node ID and label
+                parts = line.split('[')
+                if len(parts) >= 2:
+                    node_id = parts[0].strip()
+                    label = parts[1].split(']')[0].strip().replace('"', '')
+                    nodes.append({'id': node_id, 'label': label})
+            
+            # Extract connections
+            if '-->' in line:
+                parts = line.split('-->')
+                if len(parts) == 2:
+                    from_node = parts[0].strip()
+                    to_node = parts[1].strip()
+                    edges.append({'from': from_node, 'to': to_node})
+        
+        if not nodes:
+            return None
+        
+        # Create positions for nodes (simple layout)
+        import math
+        for i, node in enumerate(nodes):
+            angle = 2 * math.pi * i / len(nodes)
+            x = math.cos(angle)
+            y = math.sin(angle)
+            node_positions[node['id']] = (x, y)
+        
+        # Create Plotly figure
+        fig = go.Figure()
+        
+        # Add edges
+        for edge in edges:
+            if edge['from'] in node_positions and edge['to'] in node_positions:
+                x_from, y_from = node_positions[edge['from']]
+                x_to, y_to = node_positions[edge['to']]
+                
+                fig.add_trace(go.Scatter(
+                    x=[x_from, x_to, None],
+                    y=[y_from, y_to, None],
+                    mode='lines',
+                    line=dict(color='gray', width=2),
+                    showlegend=False,
+                    hoverinfo='skip'
+                ))
+        
+        # Add nodes
+        x_coords = []
+        y_coords = []
+        labels = []
+        
+        for node in nodes:
+            if node['id'] in node_positions:
+                x, y = node_positions[node['id']]
+                x_coords.append(x)
+                y_coords.append(y)
+                labels.append(node['label'])
+        
+        fig.add_trace(go.Scatter(
+            x=x_coords,
+            y=y_coords,
+            mode='markers+text',
+            marker=dict(size=30, color='lightblue', line=dict(width=2, color='darkblue')),
+            text=labels,
+            textposition='middle center',
+            showlegend=False,
+            hoverinfo='text'
+        ))
+        
+        # Update layout
+        fig.update_layout(
+            title=title,
+            showlegend=False,
+            xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+            yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+            plot_bgcolor='white',
+            margin=dict(l=20, r=20, t=40, b=20)
+        )
+        
+        return fig
+        
+    except Exception as e:
+        st.error(f"Error creating Plotly diagram: {str(e)}")
+        return None
+
+def create_text_flowchart(diagram_code: str, title: str):
+    """
+    Create a simple text-based flowchart as fallback
+    """
+    st.markdown("#### 📊 Text-based Flow Visualization")
+    
+    if not diagram_code:
+        st.info("No flow data available")
+        return
+    
+    # Extract nodes and connections from Mermaid code
+    nodes = []
+    connections = []
+    
+    lines = diagram_code.split('\n')
+    for line in lines:
+        line = line.strip()
+        if '-->' in line:
+            parts = line.split('-->')
+            if len(parts) == 2:
+                from_node = parts[0].strip()
+                to_node = parts[1].strip()
+                
+                # Clean node names
+                from_node = re.sub(r'["\[\]{}]', '', from_node)
+                to_node = re.sub(r'["\[\]{}]', '', to_node)
+                
+                connections.append((from_node, to_node))
+                if from_node not in nodes:
+                    nodes.append(from_node)
+                if to_node not in nodes:
+                    nodes.append(to_node)
+    
+    if connections:
+        st.markdown("**Flow Steps:**")
+        for i, (from_node, to_node) in enumerate(connections[:10], 1):
+            st.markdown(f"{i}. `{from_node}` → `{to_node}`")
+        
+        if len(connections) > 10:
+            st.markdown(f"... and {len(connections) - 10} more steps")
+    else:
+        st.info("Could not parse flow information from diagram")
+
+def render_mermaid_diagram(diagram_code: str, title: str, description: str, height: int = 400, key_suffix: str = ""):
+    """
+    Render a Mermaid diagram with proper error handling and Safari compatibility
+    
+    Args:
+        diagram_code: The Mermaid diagram code
+        title: Title for the diagram section
+        description: Description of what the diagram shows
+        height: Height of the diagram in pixels
+        key_suffix: Suffix for the unique key (to avoid conflicts)
+    """
+    st.markdown(f"#### {title}")
+    st.markdown(description)
+    
+    # Check if diagram has meaningful content
+    if not diagram_code or diagram_code.strip() == "graph TD\n    A[\"No main flows detected\"]":
+        st.info("No diagram data available for this section.")
+        return
+    
+    # Clean and validate diagram code
+    cleaned_code = clean_mermaid_diagram(diagram_code)
+    
+    # Detect browser type for Safari-specific handling
+    is_safari = detect_safari_browser()
+    
+    # Debug information
+    with st.expander("🔧 Debug Info", expanded=False):
+        st.write(f"**Mermaid Available:** {MERMAID_AVAILABLE}")
+        st.write(f"**Mermaid Functional:** {MERMAID_FUNCTIONAL}")
+        st.write(f"**Diagram Length:** {len(cleaned_code) if cleaned_code else 0}")
+        st.write(f"**Key Suffix:** {key_suffix}")
+        st.write(f"**Browser:** {'Safari' if is_safari else 'Other'}")
+        if cleaned_code:
+            st.write(f"**First 100 chars:** {cleaned_code[:100]}...")
+    
+    # Try multiple rendering approaches
+    diagram_rendered = False
+    
+    if MERMAID_AVAILABLE and MERMAID_FUNCTIONAL:
+        try:
+            # Create a unique key for this diagram
+            unique_key = f"mermaid_{key_suffix}_{abs(hash(cleaned_code)) % 10000}"
+            
+            # Safari-specific rendering with additional configuration
+            if is_safari:
+                # Use simpler diagram for Safari
+                simplified_code = simplify_diagram_for_safari(cleaned_code)
+                st_mermaid.st_mermaid(
+                    simplified_code, 
+                    height=height, 
+                    key=unique_key
+                )
+            else:
+                # Standard rendering for other browsers
+                st_mermaid.st_mermaid(
+                    cleaned_code, 
+                    height=height, 
+                    key=unique_key
+                )
+            diagram_rendered = True
+            
+        except Exception as e:
+            st.warning(f"⚠️ Mermaid rendering failed: {str(e)}")
+            # Continue to fallback options
+    
+    # Fallback 1: Create Plotly-based visualization
+    if not diagram_rendered:
+        st.info("🔄 Using alternative visualization (Safari-friendly)")
+        
+        # Create a Plotly-based diagram as fallback
+        plotly_fig = create_plotly_diagram_from_mermaid(cleaned_code, title)
+        if plotly_fig:
+            st.plotly_chart(plotly_fig, use_container_width=True)
+            diagram_rendered = True
+        else:
+            # Fallback to text-based flow chart
+            create_text_flowchart(cleaned_code, title)
+    
+    # Always show expandable source code
+    with st.expander("🔍 View Diagram Source Code"):
+        st.code(cleaned_code, language='mermaid')
+        st.markdown("**💡 Tip:** Copy this code to [Mermaid Live](https://mermaid.live/) if diagrams don't render")
+        
+        col1, col2 = st.columns([3, 1])
+        
+        with col1:
+            # Create a direct link to view the diagram
+            try:
+                import urllib.parse
+                
+                # Create a link for Mermaid Live Editor
+                encoded_diagram = urllib.parse.quote(diagram_code)
+                live_editor_url = f"https://mermaid.live/edit#{encoded_diagram}"
+                
+                st.markdown(f"🎯 [**View Live Diagram**]({live_editor_url})")
+                
+            except Exception:
+                pass  # If encoding fails, just skip the live link
+        
+        with col2:
+            st.markdown("**Quick Links:**")
+            st.markdown("🔗 [Mermaid Live Editor](https://mermaid.live)")
+            st.markdown("📚 [Mermaid Documentation](https://mermaid.js.org/)")
+        
+        # Create alternative text-based visualization
+        _create_text_based_diagram(diagram_code, title)
+
+def _create_text_based_diagram(diagram_code: str, title: str):
+    """Create a simple text-based representation of the diagram"""
+    try:
+        st.markdown("### 🎨 Text-Based Visualization")
+        
+        lines = diagram_code.split('\n')
+        nodes = []
+        connections = []
+        
+        for line in lines:
+            line = line.strip()
+            if '-->' in line:
+                parts = line.split('-->')
+                if len(parts) == 2:
+                    from_node = parts[0].strip()
+                    to_node = parts[1].strip()
+                    connections.append(f"**{from_node}** → **{to_node}**")
+            elif '[' in line and ']' in line:
+                # Extract node name
+                start = line.find('[')
+                end = line.find(']')
+                if start < end:
+                    node_text = line[start+1:end].replace('"', '')
+                    nodes.append(f"📦 {node_text}")
+        
+        if nodes:
+            st.markdown("**Components:**")
+            for node in nodes[:10]:  # Show first 10
+                st.markdown(f"- {node}")
+        
+        if connections:
+            st.markdown("**Flow:**")
+            for conn in connections[:10]:  # Show first 10
+                st.markdown(f"- {conn}")
+                
+    except Exception:
+        st.info("Could not create text visualization")
+
+def create_plotly_network_diagram(visual_data: Dict[str, Any], title: str) -> Optional[go.Figure]:
+    """
+    Create a Plotly-based network diagram from visual data
+    """
+    try:
+        component_interactions = visual_data.get('component_interactions', [])
+        
+        if not component_interactions:
+            return None
+        
+        # Extract unique components
+        components = set()
+        edges = []
+        
+        for interaction in component_interactions:
+            from_comp = interaction.get('from_component', 'Unknown')
+            to_comp = interaction.get('to_component', 'Unknown')
+            components.add(from_comp)
+            components.add(to_comp)
+            edges.append((from_comp, to_comp))
+        
+        components = list(components)
+        
+        # Create positions for components (circular layout)
+        import math
+        positions = {}
+        for i, comp in enumerate(components):
+            angle = 2 * math.pi * i / len(components)
+            x = math.cos(angle)
+            y = math.sin(angle)
+            positions[comp] = (x, y)
+        
+        # Create Plotly figure
+        fig = go.Figure()
+        
+        # Add edges
+        for from_comp, to_comp in edges:
+            if from_comp in positions and to_comp in positions:
+                x_from, y_from = positions[from_comp]
+                x_to, y_to = positions[to_comp]
+                
+                fig.add_trace(go.Scatter(
+                    x=[x_from, x_to, None],
+                    y=[y_from, y_to, None],
+                    mode='lines',
+                    line=dict(color='rgba(50, 50, 50, 0.5)', width=2),
+                    showlegend=False,
+                    hoverinfo='skip'
+                ))
+        
+        # Add nodes
+        x_coords = []
+        y_coords = []
+        labels = []
+        
+        for comp in components:
+            x, y = positions[comp]
+            x_coords.append(x)
+            y_coords.append(y)
+            labels.append(comp[:20])  # Truncate long names
+        
+        fig.add_trace(go.Scatter(
+            x=x_coords,
+            y=y_coords,
+            mode='markers+text',
+            marker=dict(size=40, color='lightblue', line=dict(width=2, color='navy')),
+            text=labels,
+            textposition='middle center',
+            textfont=dict(size=10),
+            showlegend=False,
+            hoverinfo='text'
+        ))
+        
+        # Update layout
+        fig.update_layout(
+            title=title,
+            showlegend=False,
+            xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+            yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+            plot_bgcolor='white',
+            height=400,
+            margin=dict(l=20, r=20, t=40, b=20)
+        )
+        
+        return fig
+        
+    except Exception as e:
+        st.error(f"Error creating network diagram: {str(e)}")
+        return None
+
+
 # Configure Streamlit page
 st.set_page_config(
     page_title="🚀 Free LLM Repository Analyzer",
@@ -439,21 +940,21 @@ Classes: {', '.join(file_info.get('classes', [])[:5])}
 """
         
         prompt = f"""
-Explain the purpose and functionality of this file clearly.
+Analyze this file in detail.
 
 {context}
 
-Provide a concise explanation (2-3 sentences) of:
-1. What this file does
-2. Its role in the project
-3. Key functionality (if code file)
-
-Keep it brief and focused.
+Provide a comprehensive explanation (at least 5-7 sentences, 200-400 words) covering:
+1. What this file does overall and its role in the project (e.g., is it a core model, utility, or config?).
+2. Key functions/classes: For each (up to 5), describe what it does, its parameters, return values, how it works (with pseudocode/examples), and edge cases (e.g., what if input is empty?).
+3. Interactions: How it uses imports or is used by other files.
+4. Strengths/weaknesses: Any best practices or potential issues.
+Use clear, descriptive language with examples where helpful.
 """
         
         try:
             messages = [
-                {"role": "system", "content": "You are a code analyst explaining file purposes concisely."},
+                {"role": "system", "content": "You are a detailed code analyst explaining files thoroughly."},
                 {"role": "user", "content": prompt}
             ]
             
@@ -518,7 +1019,7 @@ KEY FILES:
 
 CODE QUALITY METRICS:
 - Average complexity: {quality_metrics.get('complexity', {}).get('average_complexity', 'N/A')}
-- Code duplication: {quality_metrics.get('duplication', {}).get('duplication_percentage', 'N/A')}%
+- Code duplication: {quality_metrics.get('duplication', {}).get('duplication_percentage', 'N/A')}% 
 - Comment ratio: {quality_metrics.get('comment_ratio', 'N/A')}%
 - Quality score: {quality_metrics.get('overall_score', {}).get('score', 'N/A')}/100 (Grade: {quality_metrics.get('overall_score', {}).get('grade', 'N/A')})
 """
@@ -528,18 +1029,16 @@ Based on this repository analysis including code quality metrics, provide a comp
 
 {context}
 
-Please provide:
-
-1. **Overall Assessment** - What type of project is this and what's its scope?
-2. **Code Quality Observations** - What can you infer about code organization and quality?
-3. **Key Recommendations** - What improvements could be made?
-
-Keep it concise but insightful, and include observations about the code quality metrics.
+Please provide in MARKDOWN format:
+1. **Overall Assessment** - What type of project is this (e.g., ML transformer training)? Scope, key goals, and tech stack details.
+2. **Code Quality Observations** - Analyze organization, quality metrics (e.g., why low duplication?), strengths (e.g., modular design), and weaknesses (e.g., missing tests). Include examples.
+3. **Key Recommendations** - 3-5 specific improvements (e.g., add unit tests for models). Explain WHY each helps.
+Be insightful, reference specific files/metrics, and aim for 300-500 words.
 """
         
         try:
             messages = [
-                {"role": "system", "content": "You are a senior software architect analyzing a codebase including quality metrics."},
+                {"role": "system", "content": "You are a senior ML architect analyzing a codebase including quality metrics."},
                 {"role": "user", "content": prompt}
             ]
             
@@ -611,6 +1110,36 @@ with st.sidebar:
         3. Pull model: `ollama pull llama3.2:3b`
         """)
     
+    # Mermaid status
+    if MERMAID_AVAILABLE and MERMAID_FUNCTIONAL:
+        st.markdown('<div class="status-success">✅ Mermaid diagrams enabled</div>', unsafe_allow_html=True)
+        
+        # Test Mermaid rendering
+        if st.button("🧪 Test Mermaid"):
+            st.markdown("**Mermaid Test:**")
+            try:
+                test_diagram = "graph TD\n    A[Test] --> B[Working!]"
+                st_mermaid.st_mermaid(test_diagram, height=150, key="sidebar_test")
+                st.success("Mermaid is working!")
+            except Exception as e:
+                st.error(f"Mermaid test failed: {str(e)}")
+    elif MERMAID_AVAILABLE:
+        st.markdown('<div class="status-error">⚠️ Mermaid installed but not functional</div>', unsafe_allow_html=True)
+        st.markdown("""
+        **Try fixing:**
+        1. Restart Streamlit
+        2. `pip uninstall streamlit-mermaid && pip install streamlit-mermaid`
+        """)
+    else:
+        st.markdown('<div class="status-error">❌ Mermaid not available</div>', unsafe_allow_html=True)
+        st.markdown("""
+        **To enable interactive diagrams:**
+        1. `pip install streamlit-mermaid`
+        2. Restart the app
+        """)
+        st.info("You can still view diagram code and use Mermaid Live Editor")
+    
+    
     st.header("🎯 Analysis Features")
     st.markdown("""
     **🏆 Code Quality Analysis:**
@@ -633,6 +1162,8 @@ repo_url = st.text_input(
     placeholder="https://github.com/karpathy/micrograd or karpathy/micrograd",
     help="Enter a GitHub repository URL or owner/repo format"
 )
+
+detail_level = st.radio("Explanation Detail", ["Concise", "Detailed"], index=1)
 
 col1, col2 = st.columns([1, 4])
 with col1:
@@ -975,8 +1506,19 @@ if 'analysis_results' in st.session_state:
             st.subheader("🎨 Visual Code Analysis")
             
             visual_data = quality_metrics.get('visual_analysis', {})
-            if visual_data and visual_data.get('entry_points'):
+            
+            # Debug information
+            with st.expander("🔍 Debug: Visual Analysis Data", expanded=True):
+                st.write("**Quality Metrics Keys:**", list(quality_metrics.keys()) if quality_metrics else "No quality metrics")
+                st.write("**Visual Data Keys:**", list(visual_data.keys()) if visual_data else "No visual data")
+                st.write("**Visual Data:**", visual_data)
                 
+                if visual_data:
+                    st.write("**Entry Points:**", visual_data.get('entry_points', 'No entry points'))
+                    st.write("**Has Entry Points:**", bool(visual_data.get('entry_points')))
+                    st.write("**Visual Diagrams:**", visual_data.get('visual_diagrams', 'No visual diagrams'))
+            
+            if visual_data and visual_data.get('visual_diagrams', {}):
                 # System Overview
                 system_overview = visual_data.get('system_overview', {})
                 col1, col2, col3, col4 = st.columns(4)
@@ -1021,45 +1563,19 @@ if 'analysis_results' in st.session_state:
                 
                 visual_diagrams = visual_data.get('visual_diagrams', {})
                 
-                # System Flow Diagram
-                system_flow = visual_diagrams.get('system_flow')
-                if system_flow and system_flow != "graph TD\n    A[\"No main flows detected\"]":
-                    st.markdown("#### 🌊 System Flow Diagram")
-                    st.markdown("This shows how your application flows from start to finish:")
-                    
-                    try:
-                        from streamlit_mermaid import st_mermaid
-                        st_mermaid(system_flow, height=400)
-                    except ImportError:
-                        # Fallback to displaying the mermaid code
-                        st.code(system_flow, language='text')
-                        st.info("💡 Install streamlit-mermaid for interactive diagrams: `pip install streamlit-mermaid`")
-                
-                # Component Interaction Diagram
-                component_interaction = visual_diagrams.get('component_interaction')
-                if component_interaction and component_interaction != "graph TD\n    A[\"No component interactions detected\"]":
-                    st.markdown("#### 🔗 Component Interaction Diagram")
-                    st.markdown("This shows how different parts of your code work together:")
-                    
-                    try:
-                        from streamlit_mermaid import st_mermaid
-                        st_mermaid(component_interaction, height=400)
-                    except ImportError:
-                        st.code(component_interaction, language='text')
-                        st.info("💡 Install streamlit-mermaid for interactive diagrams: `pip install streamlit-mermaid`")
-                
-                # Data Flow Diagram
-                data_flow = visual_diagrams.get('data_flow')
-                if data_flow and data_flow != "graph TD\n    A[\"No data flows detected\"]":
-                    st.markdown("#### 📈 Data Flow Diagram")
-                    st.markdown("This shows how data moves through your application:")
-                    
-                    try:
-                        from streamlit_mermaid import st_mermaid
-                        st_mermaid(data_flow, height=400)
-                    except ImportError:
-                        st.code(data_flow, language='text')
-                        st.info("💡 Install streamlit-mermaid for interactive diagrams: `pip install streamlit-mermaid`")
+                for diagram_name, diagram_code in visual_diagrams.items():
+                    if diagram_code and diagram_code.strip():
+                        title = f"{diagram_name.replace('_', ' ').title()}"
+                        description = "Diagram showing code structure"
+                        
+                        if detect_safari_browser():
+                            plotly_fig = create_plotly_diagram_from_mermaid(diagram_code, title)
+                            if plotly_fig:
+                                st.plotly_chart(plotly_fig)
+                            else:
+                                st.code(diagram_code, language='mermaid')
+                        else:
+                            render_mermaid_diagram(diagram_code, title, description)
                 
                 # Main Flows Analysis
                 main_flows = visual_data.get('main_flows', [])
@@ -1145,6 +1661,28 @@ if 'analysis_results' in st.session_state:
                     st.info(f"**Detected Architecture:** {arch_style}")
             
             else:
-                st.info("📊 Visual analysis will show interactive diagrams of your code structure. Analyzing...")
+                st.warning("⚠️ No visual data detected—repo may lack supported structures.")
+                st.markdown("**Possible reasons:**")
+                st.markdown("- No entry points detected in the code")
+                st.markdown("- Visual analyzer failed to process the files")
+                st.markdown("- Repository has no supported file types (.py, .js, .ts, etc.)")
+                
+                # Show what we can
+                if visual_data:
+                    st.markdown("**Available data:**")
+                    for key, value in visual_data.items():
+                        if value:
+                            st.markdown(f"- **{key}:** {len(value) if isinstance(value, (list, dict)) else value}")
+                
+                # Force show diagrams if they exist
+                visual_diagrams = visual_data.get('visual_diagrams', {}) if visual_data else {}
+                if visual_diagrams:
+                    st.markdown("### 🔧 Available Diagrams (Debug)")
+                    for diagram_name, diagram_code in visual_diagrams.items():
+                        if diagram_code and diagram_code.strip():
+                            st.markdown(f"**{diagram_name}:**")
+                            st.code(diagram_code, language='text')
+                
+                st.info("📊 Try analyzing a Python repository with main() functions or __main__ blocks for better results.")
     else:
         st.error(f"Analysis failed: {result.get('error', 'Unknown error')}")
