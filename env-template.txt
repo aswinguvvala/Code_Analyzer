@@ -1,0 +1,30 @@
+# Environment Configuration Template
+# Copy this file to .env and fill in your values
+
+# AI Model Service API Keys (choose one or more)
+GEMINI_API_KEY=your_gemini_api_key_here
+OPENAI_API_KEY=your_openai_api_key_here
+
+# AWS Configuration (for Bedrock or SageMaker)
+AWS_ACCESS_KEY_ID=your_aws_access_key_id
+AWS_SECRET_ACCESS_KEY=your_aws_secret_access_key
+AWS_DEFAULT_REGION=us-east-1
+
+# Azure Configuration (optional)
+AZURE_OPENAI_API_KEY=your_azure_openai_key
+AZURE_OPENAI_ENDPOINT=your_azure_endpoint
+
+# Streamlit Configuration
+STREAMLIT_SERVER_PORT=8501
+STREAMLIT_SERVER_ADDRESS=0.0.0.0
+STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
+STREAMLIT_SERVER_HEADLESS=true
+
+# Logging Configuration
+LOG_LEVEL=INFO
+LOG_FILE=logs/app.log
+
+# Application Configuration
+MAX_REPO_SIZE_MB=500
+MAX_ANALYSIS_TIME_MINUTES=10
+TEMP_DIR=./temp 

@@ -1,0 +1,30 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "app.py",
+      "use": "@vercel/python",
+      "config": {
+        "maxLambdaSize": "50mb",
+        "runtime": "python3.11"
+      }
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "app.py"
+    }
+  ],
+  "env": {
+    "GEMINI_API_KEY": "@gemini-api-key",
+    "OPENAI_API_KEY": "@openai-api-key",
+    "STREAMLIT_SERVER_PORT": "8501",
+    "STREAMLIT_SERVER_ADDRESS": "0.0.0.0"
+  },
+  "functions": {
+    "app.py": {
+      "maxDuration": 300
+    }
+  }
+} 

@@ -1,0 +1,43 @@
+# AWS SageMaker Deployment Configuration
+# This deploys your Code Analyzer as a SageMaker endpoint for scalable inference
+
+apiVersion: sagemaker.aws.crossplane.io/v1alpha1
+kind: Model
+metadata:
+  name: code-analyzer-model
+spec:
+  forProvider:
+    executionRoleArn: arn:aws:iam::YOUR_ACCOUNT:role/SageMakerExecutionRole
+    primaryContainer:
+      image: YOUR_ACCOUNT.dkr.ecr.us-east-1.amazonaws.com/code-analyzer:latest
+      environment:
+        SAGEMAKER_PROGRAM: inference.py
+        SAGEMAKER_SUBMIT_DIRECTORY: /opt/ml/code
+        SAGEMAKER_CONTAINER_LOG_LEVEL: "20"
+        SAGEMAKER_REGION: us-east-1
+    region: us-east-1
+
+---
+apiVersion: sagemaker.aws.crossplane.io/v1alpha1
+kind: EndpointConfiguration
+metadata:
+  name: code-analyzer-endpoint-config
+spec:
+  forProvider:
+    productionVariants:
+      - initialInstanceCount: 1
+        initialVariantWeight: 1.0
+        instanceType: ml.t2.medium
+        modelName: code-analyzer-model
+        variantName: primary
+    region: us-east-1
+
+---
+apiVersion: sagemaker.aws.crossplane.io/v1alpha1
+kind: Endpoint
+metadata:
+  name: code-analyzer-endpoint
+spec:
+  forProvider:
+    endpointConfigName: code-analyzer-endpoint-config
+    region: us-east-1 

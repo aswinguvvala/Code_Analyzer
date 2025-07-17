@@ -1,11 +1,31 @@
-streamlit
-plotly
-pandas
-GitPython
-requests
-networkx
-packaging
-setuptools
-streamlit-mermaid
-altair
-google-generativeai
+# Core dependencies
+streamlit>=1.28.0
+asyncio
+git-python
+plotly>=5.15.0
+pandas>=1.5.0
+pathlib
+
+# AI Model Services
+google-generativeai>=0.3.0  # For Gemini API
+openai>=1.0.0              # For OpenAI API
+boto3>=1.34.0              # For AWS Bedrock
+anthropic>=0.7.0           # For Anthropic Claude (alternative)
+
+# Optional dependencies for specific deployments
+# streamlit-mermaid>=0.1.0  # For diagram rendering (optional)
+
+# Production dependencies
+gunicorn>=21.2.0           # For production WSGI server
+uvicorn>=0.24.0            # For ASGI server
+boto3>=1.34.0              # AWS SDK
+azure-cognitiveservices-language-luis>=0.7.0  # Azure AI (optional)
+
+# Environment and logging
+python-dotenv>=1.0.0       # For environment variables
+logging
+
+# Development dependencies (optional)
+# pytest>=7.4.0
+# black>=23.0.0
+# flake8>=6.0.0
