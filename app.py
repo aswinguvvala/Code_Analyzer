@@ -18,7 +18,14 @@ import git
 
 # Import our code quality analyzer
 from code_quality_analyzer import CodeQualityAnalyzer
-from visual_code_analyzer import VisualCodeAnalyzer
+from visual_code_analyzer import IntelligentAdaptiveVisualAnalyzer
+
+# Import Google Gemini for hybrid analysis
+try:
+    import google.generativeai as genai
+    GEMINI_AVAILABLE = True
+except ImportError:
+    GEMINI_AVAILABLE = False
 
 # Check for streamlit-mermaid availability
 try:
@@ -619,13 +626,30 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 class RepositoryAnalyzer:
-    """Enhanced repository analyzer with code quality metrics"""
+    """Enhanced repository analyzer with hybrid Gemini/Ollama approach"""
     
-    def __init__(self):
+    def __init__(self, gemini_api_key: str = None):
+        # Initialize Gemini if API key is provided
+        self.gemini_model = None
+        self.gemini_available = False
+        self.api_requests_made = 0
+        self.api_limit_reached = False
+        
+        if gemini_api_key and GEMINI_AVAILABLE:
+            try:
+                genai.configure(api_key=gemini_api_key)
+                self.gemini_model = genai.GenerativeModel('gemini-1.5-flash')
+                self.gemini_available = True
+            except Exception as e:
+                st.warning(f"⚠️ Gemini API initialization failed: {str(e)}")
+                self.gemini_available = False
+        
+        # Initialize Ollama
         self.ollama_available = self._check_ollama()
+        
         # Initialize analyzers
         self.quality_analyzer = CodeQualityAnalyzer()
-        self.visual_analyzer = VisualCodeAnalyzer()
+        self.visual_analyzer = IntelligentAdaptiveVisualAnalyzer()
     
     def _check_ollama(self) -> bool:
         """Check if Ollama is available"""
@@ -635,6 +659,40 @@ class RepositoryAnalyzer:
             return result.returncode == 0
         except:
             return False
+    
+    async def _call_gemini(self, messages: List[Dict], max_retries: int = 3) -> str:
+        """Call Gemini API with retry logic"""
+        if not self.gemini_available or self.api_limit_reached:
+            return None
+        
+        # Convert messages to a single prompt
+        prompt = ""
+        for msg in messages:
+            if msg["role"] == "system":
+                prompt += f"System: {msg['content']}\n\n"
+            elif msg["role"] == "user":
+                prompt += f"User: {msg['content']}\n\n"
+        
+        for attempt in range(max_retries):
+            try:
+                response = self.gemini_model.generate_content(prompt)
+                if response.text:
+                    self.api_requests_made += 1
+                    return response.text.strip()
+                else:
+                    return None
+            except Exception as e:
+                error_msg = str(e).lower()
+                if 'quota' in error_msg or 'rate limit' in error_msg:
+                    self.api_limit_reached = True
+                    return None
+                elif attempt == max_retries - 1:
+                    return None
+                else:
+                    # Wait before retry
+                    await asyncio.sleep(2 ** attempt)
+        
+        return None
     
     async def _call_ollama(self, messages: List[Dict], model: str = "llama3.2:3b") -> str:
         """Call Ollama API"""
@@ -674,6 +732,30 @@ class RepositoryAnalyzer:
             return "Error: Request timed out"
         except Exception as e:
             return f"Error: {str(e)}"
+    
+    async def _call_llm_hybrid(self, messages: List[Dict], context: str = "analysis") -> str:
+        """Hybrid LLM call: Try Gemini first, fallback to Ollama"""
+        
+        # Try Gemini first if available and not over quota
+        if self.gemini_available and not self.api_limit_reached:
+            try:
+                response = await self._call_gemini(messages)
+                if response:
+                    return response
+                else:
+                    # If Gemini fails, log it and fallback to Ollama
+                    if self.api_limit_reached:
+                        st.info("🔄 API quota reached, switching to local Ollama...")
+                    else:
+                        st.info("🔄 Gemini API failed, switching to local Ollama...")
+            except Exception as e:
+                st.info(f"🔄 Gemini error: {str(e)}, switching to local Ollama...")
+        
+        # Fallback to Ollama
+        if self.ollama_available:
+            return await self._call_ollama(messages)
+        else:
+            return f"Error: Neither Gemini API nor Ollama is available for {context}"
     
     def _parse_repo_url(self, repo_input: str) -> Optional[Dict[str, str]]:
         """Parse repository URL in multiple formats"""
@@ -923,8 +1005,8 @@ class RepositoryAnalyzer:
     
     async def _explain_single_file(self, file_path: str, file_info: Dict[str, Any]) -> str:
         """Generate explanation for a single file"""
-        if not self.ollama_available:
-            return f"File analysis requires Ollama to be running. File has {file_info.get('lines', 0)} lines."
+        if not self.gemini_available and not self.ollama_available:
+            return f"File analysis requires either Gemini API or Ollama to be running. File has {file_info.get('lines', 0)} lines."
         
         context = f"""
 File: {file_path}
@@ -958,7 +1040,7 @@ Use clear, descriptive language with examples where helpful.
                 {"role": "user", "content": prompt}
             ]
             
-            response = await self._call_ollama(messages)
+            response = await self._call_llm_hybrid(messages, "file analysis")
             return response.strip()
             
         except Exception as e:
@@ -966,7 +1048,7 @@ Use clear, descriptive language with examples where helpful.
     
     async def _generate_file_explanations(self, detailed_files: Dict[str, Any]) -> Dict[str, str]:
         """Generate explanations for individual files using LLM"""
-        if not self.ollama_available:
+        if not self.gemini_available and not self.ollama_available:
             return {}
         
         file_explanations = {}
@@ -996,8 +1078,8 @@ Use clear, descriptive language with examples where helpful.
     
     async def _generate_overall_insights(self, analysis: Dict[str, Any]) -> str:
         """Generate overall insights about the repository including quality assessment"""
-        if not self.ollama_available:
-            return "Overall analysis requires Ollama to be running."
+        if not self.gemini_available and not self.ollama_available:
+            return "Overall analysis requires either Gemini API or Ollama to be running."
         
         file_structure = analysis['file_structure']
         quality_metrics = analysis.get('quality_metrics', {})
@@ -1042,7 +1124,7 @@ Be insightful, reference specific files/metrics, and aim for 300-500 words.
                 {"role": "user", "content": prompt}
             ]
             
-            response = await self._call_ollama(messages)
+            response = await self._call_llm_hybrid(messages, "overall analysis")
             return response.strip()
             
         except Exception as e:
@@ -1082,34 +1164,92 @@ Be insightful, reference specific files/metrics, and aim for 300-500 words.
         finally:
             if 'repo_path' in locals():
                 shutil.rmtree(repo_path, ignore_errors=True)
+    
+    def get_status(self) -> Dict[str, Any]:
+        """Get current analyzer status"""
+        return {
+            "gemini_available": self.gemini_available,
+            "ollama_available": self.ollama_available,
+            "api_requests_made": self.api_requests_made,
+            "api_limit_reached": self.api_limit_reached,
+            "recommended_approach": self._get_recommended_approach(),
+            "has_any_llm": self.gemini_available or self.ollama_available
+        }
+    
+    def _get_recommended_approach(self) -> str:
+        """Get recommendation based on current status"""
+        if self.api_limit_reached:
+            return "Local Ollama (API quota reached)"
+        elif self.gemini_available:
+            return "Gemini API (Fast)"
+        elif self.ollama_available:
+            return "Local Ollama (Slower)"
+        else:
+            return "Neither available"
 
 # Main Streamlit App (Enhanced with Quality Metrics UI)
-st.markdown('<h1 class="main-title">🚀 Free LLM Repository Analyzer</h1>', unsafe_allow_html=True)
-st.markdown("**Comprehensive GitHub repository analysis with quality metrics and interactive visual diagrams - all powered by free local AI models!**")
+st.markdown('<h1 class="main-title">🚀 Hybrid LLM Repository Analyzer</h1>', unsafe_allow_html=True)
+st.markdown("**Comprehensive GitHub repository analysis with quality metrics and interactive visual diagrams - powered by Gemini API with Ollama fallback!**")
 
-# Initialize analyzer
+# Initialize analyzer with hybrid approach
 @st.cache_resource
-def get_analyzer():
-    return RepositoryAnalyzer()
+def get_analyzer(gemini_api_key: str = None):
+    return RepositoryAnalyzer(gemini_api_key=gemini_api_key)
 
-analyzer = get_analyzer()
-
-# Sidebar
+# Get API key from sidebar
 with st.sidebar:
-    st.header("🔧 Configuration")
+    st.header("🚀 Hybrid Configuration")
     
-    # Ollama status
-    if analyzer.ollama_available:
-        st.markdown('<div class="status-success">✅ Ollama is running</div>', unsafe_allow_html=True)
+    gemini_api_key = st.text_input(
+        "🔑 Gemini API Key (Optional)",
+        type="password",
+        help="For fastest analysis. Leave empty to use local Ollama only.",
+        placeholder="Enter your Gemini API key here..."
+    )
+    
+    # Get analyzer with API key
+    if gemini_api_key:
+        analyzer = get_analyzer(gemini_api_key)
     else:
-        st.markdown('<div class="status-error">❌ Ollama not available</div>', unsafe_allow_html=True)
-        st.markdown("""
-        **To enable file explanations:**
-        1. Install Ollama: `curl -fsSL https://ollama.ai/install.sh | sh`
-        2. Start service: `ollama serve`
-        3. Pull model: `ollama pull llama3.2:3b`
-        """)
+        analyzer = get_analyzer()
     
+    # Show status
+    status = analyzer.get_status()
+    
+    st.subheader("📊 System Status")
+    
+    if status["gemini_available"]:
+        st.success("✅ Gemini API ready (Fast)")
+    else:
+        st.info("⚪ Gemini API not configured")
+    
+    if status["ollama_available"]:
+        st.success("✅ Ollama ready (Local)")
+    else:
+        st.error("❌ Ollama not available")
+    
+    if not status["has_any_llm"]:
+        st.error("❌ No LLM available for analysis")
+    else:
+        st.info(f"**Current approach:** {status['recommended_approach']}")
+    
+    # Show API usage if applicable
+    if status["api_requests_made"] > 0:
+        st.metric("API Requests Used", status["api_requests_made"])
+    
+    # Show performance tips
+    st.markdown("### ⚡ Performance Tips:")
+    st.markdown("""
+    **For Fastest Analysis:**
+    - Use Gemini API key
+    - Analyze smaller repositories first
+    
+    **For Ollama Optimization:**
+    - Use `llama3.2:1b` for speed
+    - Ensure Ollama is running
+    - Close other applications
+    """)
+
     # Mermaid status
     if MERMAID_AVAILABLE and MERMAID_FUNCTIONAL:
         st.markdown('<div class="status-success">✅ Mermaid diagrams enabled</div>', unsafe_allow_html=True)
@@ -1179,8 +1319,16 @@ if clear_button:
 
 # Perform analysis
 if analyze_button and repo_url:
-    if not analyzer.ollama_available:
-        st.warning("⚠️ Ollama is not running. Analysis will work but file explanations will be limited.")
+    status = analyzer.get_status()
+    if not status["has_any_llm"]:
+        st.error("❌ No LLM available for analysis. Please configure Gemini API key or install Ollama.")
+        st.stop()
+    elif not status["gemini_available"] and not status["ollama_available"]:
+        st.warning("⚠️ No LLM available. Analysis will work but file explanations will be limited.")
+    elif status["gemini_available"] and not status["api_limit_reached"]:
+        st.info("🚀 Using Gemini API for fast analysis...")
+    elif status["ollama_available"]:
+        st.info("🤖 Using local Ollama for analysis...")
     
     with st.spinner(f"🧠 Performing comprehensive analysis with visual diagrams... This may take 2-3 minutes"):
         start_time = time.time()
@@ -1348,7 +1496,7 @@ if 'analysis_results' in st.session_state:
                 with col3:
                     st.metric("📚 Doc Files", len(doc_files))
             else:
-                st.info("File explanations not available. Make sure Ollama is running and re-run the analysis.")
+                st.info("File explanations not available. Configure Gemini API key or make sure Ollama is running and re-run the analysis.")
         
         with tab3:
             st.subheader("AI-Generated Insights")
@@ -1357,7 +1505,7 @@ if 'analysis_results' in st.session_state:
             if insights:
                 st.markdown(insights)
             else:
-                st.info("AI insights not available. Make sure Ollama is running.")
+                st.info("AI insights not available. Configure Gemini API key or make sure Ollama is running.")
         
         with tab4:
             st.subheader("Technology Stack")
@@ -1501,188 +1649,202 @@ if 'analysis_results' in st.session_state:
             else:
                 st.info("Code quality analysis not available. This feature works best with Python repositories.")
         
-        # NEW: Visual Analysis Tab
+        # NEW: Enhanced Visual Analysis Tab
         with tab6:
-            st.subheader("🎨 Visual Code Analysis")
+            st.subheader("🎨 Intelligent Visual Analysis")
             
             visual_data = quality_metrics.get('visual_analysis', {})
             
-            # Debug information
-            with st.expander("🔍 Debug: Visual Analysis Data", expanded=True):
-                st.write("**Quality Metrics Keys:**", list(quality_metrics.keys()) if quality_metrics else "No quality metrics")
-                st.write("**Visual Data Keys:**", list(visual_data.keys()) if visual_data else "No visual data")
-                st.write("**Visual Data:**", visual_data)
+            if visual_data and visual_data.get('codebase_profile', {}):
+                # Display codebase profile
+                codebase_profile = visual_data.get('codebase_profile', {})
                 
-                if visual_data:
-                    st.write("**Entry Points:**", visual_data.get('entry_points', 'No entry points'))
-                    st.write("**Has Entry Points:**", bool(visual_data.get('entry_points')))
-                    st.write("**Visual Diagrams:**", visual_data.get('visual_diagrams', 'No visual diagrams'))
-            
-            if visual_data and visual_data.get('visual_diagrams', {}):
-                # System Overview
-                system_overview = visual_data.get('system_overview', {})
+                st.markdown("### 🔍 Codebase Profile")
                 col1, col2, col3, col4 = st.columns(4)
                 
                 with col1:
-                    st.metric("Entry Points", system_overview.get('entry_points', 0))
+                    primary_lang = codebase_profile.get('primary_language', 'Unknown')
+                    st.metric("Primary Language", primary_lang)
                 
                 with col2:
-                    st.metric("Main Flows", system_overview.get('main_flows', 0))
+                    app_type = codebase_profile.get('application_type', 'Unknown')
+                    st.metric("Application Type", app_type)
                 
                 with col3:
-                    st.metric("Component Interactions", system_overview.get('component_interactions', 0))
+                    complexity = codebase_profile.get('complexity_indicators', {}).get('complexity_level', 'Unknown')
+                    st.metric("Complexity Level", complexity)
                 
                 with col4:
-                    complexity = system_overview.get('complexity_level', 'Unknown')
-                    st.metric("Complexity", complexity)
+                    frameworks = codebase_profile.get('detected_frameworks', [])
+                    st.metric("Frameworks Found", len(frameworks))
                 
-                # Entry Points Section
+                # Display detected frameworks
+                if frameworks:
+                    st.markdown("**🔧 Detected Frameworks:**")
+                    framework_text = ", ".join(frameworks[:8])
+                    st.info(framework_text)
+                
+                # Entry Points Analysis
                 entry_points = visual_data.get('entry_points', [])
                 if entry_points:
-                    st.markdown("### 🎯 Application Entry Points")
-                    st.markdown("These are the main ways to start or access your application:")
+                    st.markdown("### 🎯 Intelligent Entry Point Detection")
                     
                     for ep in entry_points:
-                        entry_type_emoji = {
-                            'main_script': '🚀',
-                            'main_function': '🔧',
-                            'api_endpoint': '🌐',
-                            'streamlit_app': '📊',
-                            'react_component': '⚛️'
-                        }
-                        emoji = entry_type_emoji.get(ep['type'], '📁')
+                        confidence = ep.get('confidence', 0)
+                        confidence_color = "🟢" if confidence > 0.8 else "🟡" if confidence > 0.6 else "🔴"
                         
-                        with st.expander(f"{emoji} {ep['name']} ({ep['type'].replace('_', ' ').title()})"):
+                        with st.expander(f"{confidence_color} {ep['name']} ({ep['type'].replace('_', ' ').title()})"):
                             st.markdown(f"**File:** `{ep['file']}`")
                             st.markdown(f"**Description:** {ep['description']}")
-                            if ep.get('line', 1) > 1:
-                                st.markdown(f"**Line:** {ep['line']}")
+                            st.markdown(f"**Confidence:** {confidence:.2f}")
+                            st.markdown(f"**Discovery Method:** {ep.get('discovery_method', 'pattern_detection')}")
                 
-                # Visual Diagrams Section
-                st.markdown("### 📊 Interactive Diagrams")
-                
-                visual_diagrams = visual_data.get('visual_diagrams', {})
-                
-                for diagram_name, diagram_code in visual_diagrams.items():
-                    if diagram_code and diagram_code.strip():
-                        title = f"{diagram_name.replace('_', ' ').title()}"
-                        description = "Diagram showing code structure"
-                        
-                        if detect_safari_browser():
-                            plotly_fig = create_plotly_diagram_from_mermaid(diagram_code, title)
-                            if plotly_fig:
-                                st.plotly_chart(plotly_fig)
-                            else:
-                                st.code(diagram_code, language='mermaid')
-                        else:
-                            render_mermaid_diagram(diagram_code, title, description)
-                
-                # Main Flows Analysis
-                main_flows = visual_data.get('main_flows', [])
-                if main_flows:
-                    st.markdown("### 🌊 Execution Flow Analysis")
+                # Execution Flows Analysis
+                execution_flows = visual_data.get('execution_flows', [])
+                if execution_flows:
+                    st.markdown("### 🌊 Adaptive Execution Flow Analysis")
                     
-                    for i, flow in enumerate(main_flows[:3], 1):  # Show top 3 flows
+                    for i, flow in enumerate(execution_flows, 1):
                         entry_point = flow['entry_point']
                         flow_steps = flow['flow_steps']
                         
                         with st.expander(f"Flow {i}: {entry_point['name']} ({len(flow_steps)} steps)"):
-                            st.markdown(f"**Starting from:** `{entry_point['file']}`")
-                            st.markdown(f"**Components involved:** {', '.join(flow['components_involved'][:5])}")
+                            st.markdown(f"**Application Type:** {app_type}")
+                            st.markdown(f"**Execution Pattern:** {flow.get('execution_pattern', 'Unknown')}")
                             
-                            # Show key steps
-                            st.markdown("**Key execution steps:**")
-                            for step in flow_steps[:8]:  # Show first 8 steps
-                                step_emoji = {'entry': '🚀', 'import': '📦', 'function_call': '⚡', 'conditional': '🤔'}.get(step['type'], '▶️')
-                                st.markdown(f"- {step_emoji} {step['action']}")
+                            if flow.get('discovered_operations'):
+                                st.markdown("**Discovered Operations:**")
+                                for op in flow['discovered_operations'][:5]:
+                                    st.markdown(f"- {op}")
+                            
+                            # Show flow steps
+                            st.markdown("**Execution Steps:**")
+                            for step in flow_steps[:8]:
+                                step_emoji = {
+                                    'initialization': '🚀',
+                                    'dependency_loading': '📦',
+                                    'configuration': '⚙️',
+                                    'operation': '⚡',
+                                    'control_flow': '🔄',
+                                    'entry': '🎯'
+                                }.get(step.get('type'), '▶️')
+                                
+                                st.markdown(f"- {step_emoji} **{step['action']}** ({step.get('category', 'unknown')})")
                 
-                # Component Interactions Analysis
+                # Component Interactions
                 component_interactions = visual_data.get('component_interactions', [])
                 if component_interactions:
-                    st.markdown("### 🔗 Component Interactions")
-                    st.markdown(f"Found {len(component_interactions)} interactions between components:")
+                    st.markdown("### 🔗 Intelligent Component Analysis")
+                    st.markdown(f"Found {len(component_interactions)} component interactions:")
                     
-                    # Group interactions by component
-                    interaction_groups = {}
-                    for interaction in component_interactions:
-                        from_comp = interaction['from_component']
-                        if from_comp not in interaction_groups:
-                            interaction_groups[from_comp] = []
-                        interaction_groups[from_comp].append(interaction['to_component'])
+                    # Group by strength
+                    strong_interactions = [i for i in component_interactions if i.get('strength') == 'strong']
+                    medium_interactions = [i for i in component_interactions if i.get('strength') == 'medium']
+                    weak_interactions = [i for i in component_interactions if i.get('strength') == 'weak']
                     
-                    # Display top interacting components
-                    for comp, targets in sorted(interaction_groups.items(), key=lambda x: len(x[1]), reverse=True)[:8]:
-                        st.markdown(f"**{comp}** → {', '.join(targets[:5])}")
-                        if len(targets) > 5:
-                            st.markdown(f"   ... and {len(targets)-5} more")
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Strong Dependencies", len(strong_interactions))
+                    with col2:
+                        st.metric("Medium Dependencies", len(medium_interactions))
+                    with col3:
+                        st.metric("Weak Dependencies", len(weak_interactions))
+                    
+                    # Show top interactions
+                    for interaction in component_interactions[:8]:
+                        strength_emoji = {"strong": "🔴", "medium": "🟡", "weak": "🟢"}.get(interaction.get('strength'), "⚪")
+                        st.markdown(f"{strength_emoji} **{interaction['from_component']}** → **{interaction['to_component']}** ({interaction.get('interaction_type', 'dependency')})")
                 
                 # Data Flow Analysis
                 data_flows = visual_data.get('data_flows', [])
                 if data_flows:
-                    st.markdown("### 📈 Data Flow Analysis")
+                    st.markdown("### 📈 Dynamic Data Flow Analysis")
                     
-                    for flow in data_flows[:5]:  # Show top 5 data flows
+                    for flow in data_flows[:5]:
                         file_name = Path(flow['file']).name
-                        inputs = flow['inputs']
-                        transformations = flow['transformations']
-                        outputs = flow['outputs']
+                        complexity_score = flow.get('complexity', 0)
                         
-                        if inputs or transformations or outputs:
-                            with st.expander(f"📄 {file_name}"):
-                                if inputs:
-                                    st.markdown(f"**📥 Inputs:** {', '.join(inputs)}")
-                                if transformations:
-                                    st.markdown(f"**⚙️ Transformations:** {', '.join(transformations)}")
-                                if outputs:
-                                    st.markdown(f"**📤 Outputs:** {', '.join(outputs)}")
+                        with st.expander(f"📄 {file_name} (Complexity: {complexity_score})"):
+                            col1, col2, col3 = st.columns(3)
+                            
+                            with col1:
+                                st.markdown("**📥 Inputs:**")
+                                for inp in flow['inputs']:
+                                    st.markdown(f"- {inp}")
+                            
+                            with col2:
+                                st.markdown("**⚙️ Transformations:**")
+                                for transform in flow['transformations']:
+                                    st.markdown(f"- {transform}")
+                            
+                            with col3:
+                                st.markdown("**📤 Outputs:**")
+                                for output in flow['outputs']:
+                                    st.markdown(f"- {output}")
                 
-                # Insights Section
-                insights = visual_data.get('insights', [])
-                if insights:
-                    st.markdown("### 💡 Visual Structure Insights")
-                    for insight in insights:
+                # Architectural Insights
+                arch_insights = visual_data.get('architectural_insights', {})
+                if arch_insights:
+                    st.markdown("### 🏗️ Architectural Pattern Detection")
+                    
+                    arch_style = arch_insights.get('architectural_style', 'Unknown')
+                    st.info(f"**Detected Architecture:** {arch_style}")
+                    
+                    detected_patterns = arch_insights.get('detected_patterns', [])
+                    if detected_patterns:
+                        st.markdown("**🎨 Detected Patterns:**")
+                        for pattern in detected_patterns:
+                            st.markdown(f"- {pattern}")
+                
+                # Visual Diagrams Section
+                st.markdown("### 📊 Adaptive Visual Diagrams")
+                
+                visual_diagrams = visual_data.get('visual_diagrams', {})
+                
+                if visual_diagrams:
+                    for diagram_name, diagram_code in visual_diagrams.items():
+                        if diagram_code and diagram_code.strip():
+                            title = f"{diagram_name.replace('_', ' ').title()}"
+                            description = f"Adaptive diagram showing {diagram_name.replace('_', ' ')}"
+                            
+                            render_mermaid_diagram(diagram_code, title, description, key_suffix=diagram_name)
+                else:
+                    st.info("No visual diagrams generated - this may indicate a very simple codebase structure")
+                
+                # Intelligent Insights
+                intelligent_insights = visual_data.get('intelligent_insights', [])
+                if intelligent_insights:
+                    st.markdown("### 💡 Intelligent Insights")
+                    for insight in intelligent_insights:
                         st.markdown(f"- {insight}")
                 
-                # Recommendations Section
-                recommendations = visual_data.get('recommendations', [])
-                if recommendations:
-                    st.markdown("### 🎯 Recommendations")
-                    for rec in recommendations:
+                # Adaptive Recommendations
+                adaptive_recommendations = visual_data.get('adaptive_recommendations', [])
+                if adaptive_recommendations:
+                    st.markdown("### 🎯 Adaptive Recommendations")
+                    for rec in adaptive_recommendations:
                         st.markdown(f'''
                         <div class="recommendation-box">
                         {rec}
                         </div>
                         ''', unsafe_allow_html=True)
                 
-                # Architecture Style
-                arch_style = system_overview.get('architecture_style', 'Unknown')
-                if arch_style != 'Unknown':
-                    st.markdown("### 🏗️ Architecture Style")
-                    st.info(f"**Detected Architecture:** {arch_style}")
+                # Analysis Strategy
+                analysis_strategy = visual_data.get('analysis_strategy', {})
+                if analysis_strategy:
+                    with st.expander("🔧 Analysis Strategy Used"):
+                        st.json(analysis_strategy)
+                        st.markdown(f"**Approach:** {analysis_strategy.get('approach', 'Unknown')}")
+                        st.markdown(f"**Depth:** {analysis_strategy.get('depth', 'Unknown')}")
+                        st.markdown(f"**Focus Areas:** {', '.join(analysis_strategy.get('focus_areas', []))}")
             
             else:
-                st.warning("⚠️ No visual data detected—repo may lack supported structures.")
+                st.warning("⚠️ No intelligent visual analysis data available")
                 st.markdown("**Possible reasons:**")
-                st.markdown("- No entry points detected in the code")
-                st.markdown("- Visual analyzer failed to process the files")
-                st.markdown("- Repository has no supported file types (.py, .js, .ts, etc.)")
+                st.markdown("- Analysis failed to complete")
+                st.markdown("- Codebase structure not detected")
+                st.markdown("- No supported file types found")
                 
-                # Show what we can
-                if visual_data:
-                    st.markdown("**Available data:**")
-                    for key, value in visual_data.items():
-                        if value:
-                            st.markdown(f"- **{key}:** {len(value) if isinstance(value, (list, dict)) else value}")
-                
-                # Force show diagrams if they exist
-                visual_diagrams = visual_data.get('visual_diagrams', {}) if visual_data else {}
-                if visual_diagrams:
-                    st.markdown("### 🔧 Available Diagrams (Debug)")
-                    for diagram_name, diagram_code in visual_diagrams.items():
-                        if diagram_code and diagram_code.strip():
-                            st.markdown(f"**{diagram_name}:**")
-                            st.code(diagram_code, language='text')
-                
-                st.info("📊 Try analyzing a Python repository with main() functions or __main__ blocks for better results.")
+                st.info("💡 The intelligent analyzer works best with Python, JavaScript, TypeScript, Java, and other common programming languages.")
     else:
         st.error(f"Analysis failed: {result.get('error', 'Unknown error')}")

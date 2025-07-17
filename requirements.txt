@@ -8,3 +8,4 @@ packaging
 setuptools
 streamlit-mermaid
 altair
+google-generativeai
