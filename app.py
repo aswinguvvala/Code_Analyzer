@@ -20,6 +20,11 @@ import git
 from code_quality_analyzer import CodeQualityAnalyzer
 from visual_code_analyzer import IntelligentAdaptiveVisualAnalyzer
 
+# Import new analyzers
+from code_evolution_analyzer import CodeEvolutionAnalyzer
+from code_mentor import InteractiveCodeMentor
+from performance_predictor import PerformancePredictor
+
 # Import Google Gemini for hybrid analysis
 try:
     import google.generativeai as genai
@@ -1406,13 +1411,16 @@ if 'analysis_results' in st.session_state:
             ''', unsafe_allow_html=True)
         
         # Analysis tabs
-        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+        tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
             "📁 File Structure", 
             "📄 File Explanations",
             "🤖 AI Insights",
             "⚙️ Technologies",
             "🏆 Code Quality",
-            "🎨 Visual Analysis"
+            "🎨 Visual Analysis",
+            "📈 Evolution Analysis",
+            "🎓 Code Mentor",
+            "⚡ Performance Prediction"
         ])
         
         # Existing tabs remain the same...
@@ -1846,5 +1854,384 @@ if 'analysis_results' in st.session_state:
                 st.markdown("- No supported file types found")
                 
                 st.info("💡 The intelligent analyzer works best with Python, JavaScript, TypeScript, Java, and other common programming languages.")
+        
+        # NEW TAB 7: Evolution Analysis
+        with tab7:
+            st.subheader("📈 Code Evolution Analysis")
+            
+            if st.button("🕰️ Analyze Repository Evolution", key="evolution_button"):
+                with st.spinner("Analyzing repository evolution... This may take a few minutes"):
+                    try:
+                        # Initialize evolution analyzer
+                        evolution_analyzer = CodeEvolutionAnalyzer(repo_path)
+                        
+                        # Run the analysis
+                        evolution_report = evolution_analyzer.analyze_evolution(months_back=6)
+                        
+                        # Display results
+                        st.success("Evolution analysis complete!")
+                        
+                        # Summary metrics
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            st.metric("Functions Tracked", 
+                                     evolution_report['summary']['functions_tracked'])
+                        with col2:
+                            st.metric("Rapid Growth", 
+                                     evolution_report['summary']['rapidly_growing_functions'],
+                                     delta="functions")
+                        with col3:
+                            st.metric("Bug-Prone Files", 
+                                     evolution_report['summary']['bug_prone_files'])
+                        with col4:
+                            st.metric("Refactoring Needed", 
+                                     evolution_report['summary']['refactoring_needed'])
+                        
+                        # Growth Alerts
+                        if evolution_report['growth_alerts']:
+                            st.markdown("### 📊 Growth Alerts")
+                            for alert in evolution_report['growth_alerts'][:5]:
+                                with st.expander(f"⚠️ {alert['function']}"):
+                                    if alert['type'] == 'rapid_growth':
+                                        st.write(f"**Growth Rate:** {alert['growth_rate']:.0f}%")
+                                        st.write(f"**Lines:** {alert['start_lines']} → {alert['end_lines']}")
+                                    elif alert['type'] == 'complexity_growth':
+                                        st.write(f"**Complexity:** {alert['start_complexity']} → {alert['end_complexity']}")
+                                    st.info(alert['recommendation'])
+                        
+                        # Bug Patterns
+                        if evolution_report['bug_patterns']:
+                            st.markdown("### 🐛 Bug-Prone Files")
+                            for pattern in evolution_report['bug_patterns'][:5]:
+                                st.warning(f"**{pattern['file']}** - {pattern['bug_fixes']} bug fixes")
+                                st.caption(pattern['recommendation'])
+                        
+                        # Refactoring Predictions
+                        if evolution_report['refactoring_predictions']:
+                            st.markdown("### 🔮 Refactoring Predictions")
+                            for prediction in evolution_report['refactoring_predictions'][:5]:
+                                urgency = "🔴" if prediction['priority'] == 'high' else "🟡"
+                                st.write(f"{urgency} **{prediction['function']}**")
+                                st.write(f"Current: {prediction['current_lines']} lines → "
+                                       f"Predicted: {prediction['predicted_lines']} lines")
+                                st.info(prediction['recommendation'])
+                        
+                        # Insights
+                        st.markdown("### 💡 Key Insights")
+                        for insight in evolution_report['insights']:
+                            st.write(insight)
+                            
+                        # Visualizations
+                        if evolution_report['timeline_data']['file_growth']:
+                            st.markdown("### 📈 File Growth Over Time")
+                            
+                            # Create plotly chart
+                            import plotly.graph_objects as go
+                            
+                            fig = go.Figure()
+                            for file_data in evolution_report['timeline_data']['file_growth'][:5]:
+                                dates = [point[0] for point in file_data['data_points']]
+                                lines = [point[1] for point in file_data['data_points']]
+                                
+                                fig.add_trace(go.Scatter(
+                                    x=dates, y=lines,
+                                    mode='lines+markers',
+                                    name=file_data['file']
+                                ))
+                            
+                            fig.update_layout(
+                                title="File Size Evolution",
+                                xaxis_title="Date",
+                                yaxis_title="Lines of Code"
+                            )
+                            st.plotly_chart(fig, use_container_width=True)
+                            
+                    except Exception as e:
+                        st.error(f"Evolution analysis failed: {str(e)}")
+        
+        # NEW TAB 8: Code Mentor
+        with tab8:
+            st.subheader("🎓 Interactive Code Mentor")
+            
+            # Initialize mentor in session state
+            if 'code_mentor' not in st.session_state:
+                if 'analysis_results' in st.session_state:
+                    st.session_state.code_mentor = InteractiveCodeMentor(
+                        st.session_state['analysis_results'],
+                        analyzer._call_llm_hybrid  # Your hybrid LLM function
+                    )
+                    # Start the session
+                    welcome = st.session_state.code_mentor.start_mentor_session()
+                    st.session_state.mentor_messages = [welcome]
+                else:
+                    st.warning("Please analyze a repository first to start the Code Mentor.")
+                    st.stop()
+            
+            # Display conversation history
+            for message in st.session_state.get('mentor_messages', []):
+                if message.get('message'):
+                    with st.chat_message("assistant" if 'suggestions' in message else "user"):
+                        st.write(message['message'])
+                        
+                        # Show diagram if available
+                        if message.get('diagram'):
+                            render_mermaid_diagram(
+                                message['diagram'],
+                                "Explanation Diagram",
+                                "Visual representation of the concept",
+                                key_suffix=f"mentor_{len(st.session_state.mentor_messages)}"
+                            )
+                        
+                        # Show code examples if available
+                        if message.get('code_examples'):
+                            st.markdown("**📝 Relevant Code Examples:**")
+                            for example in message['code_examples']:
+                                st.code(f"# {example['description']}\n# See: {example['file']}")
+                        
+                        # Show exercise if created
+                        if message.get('exercise'):
+                            exercise = message['exercise']
+                            with st.expander("📚 Exercise Details"):
+                                st.write(exercise['content'])
+                                
+                                # Setup commands
+                                if message.get('setup_commands'):
+                                    st.markdown("**Setup Commands:**")
+                                    st.code('\n'.join(message['setup_commands']))
+                                
+                                # Hint system
+                                col1, col2, col3 = st.columns(3)
+                                with col1:
+                                    if st.button("💡 Hint 1", key=f"hint1_{exercise['id']}"):
+                                        hint = asyncio.run(
+                                            st.session_state.code_mentor.provide_hint(exercise['id'], 1)
+                                        )
+                                        st.info(hint)
+                                with col2:
+                                    if st.button("💡 Hint 2", key=f"hint2_{exercise['id']}"):
+                                        hint = asyncio.run(
+                                            st.session_state.code_mentor.provide_hint(exercise['id'], 2)
+                                        )
+                                        st.info(hint)
+                                with col3:
+                                    if st.button("💡 Hint 3", key=f"hint3_{exercise['id']}"):
+                                        hint = asyncio.run(
+                                            st.session_state.code_mentor.provide_hint(exercise['id'], 3)
+                                        )
+                                        st.info(hint)
+                                
+                                # Solution submission
+                                solution_code = st.text_area(
+                                    "Your Solution:",
+                                    key=f"solution_{exercise['id']}",
+                                    height=200
+                                )
+                                
+                                if st.button("Check Solution", key=f"check_{exercise['id']}"):
+                                    if solution_code:
+                                        result = asyncio.run(
+                                            st.session_state.code_mentor.check_solution(
+                                                exercise['id'], solution_code
+                                            )
+                                        )
+                                        if result['success']:
+                                            st.success("Solution submitted!")
+                                            st.write(result['feedback'])
+                                            if result['exercise_completed']:
+                                                st.balloons()
+                                                st.success("🎉 Exercise completed successfully!")
+                                            
+                                            # Next steps
+                                            if result['next_steps']:
+                                                st.markdown("**Next Steps:**")
+                                                for step in result['next_steps']:
+                                                    st.write(f"• {step}")
+            
+            # Suggestions
+            if st.session_state.get('mentor_messages'):
+                last_message = st.session_state.mentor_messages[-1]
+                if last_message.get('follow_up_suggestions') or last_message.get('suggestions'):
+                    st.markdown("**💭 Suggested Questions:**")
+                    suggestions = (last_message.get('follow_up_suggestions') or 
+                                 last_message.get('suggestions', []))
+                    
+                    cols = st.columns(min(len(suggestions), 3))
+                    for i, suggestion in enumerate(suggestions):
+                        with cols[i % 3]:
+                            if st.button(suggestion, key=f"suggestion_{i}"):
+                                st.session_state.pending_question = suggestion
+            
+            # Chat input
+            question = st.chat_input("Ask me anything about this codebase...")
+            
+            # Handle pending question from suggestion button
+            if 'pending_question' in st.session_state:
+                question = st.session_state.pending_question
+                del st.session_state.pending_question
+            
+            if question:
+                # Add user message to display
+                st.session_state.mentor_messages.append({'message': question})
+                
+                # Process the question
+                with st.spinner("Thinking..."):
+                    response = asyncio.run(
+                        st.session_state.code_mentor.process_question(question)
+                    )
+                    st.session_state.mentor_messages.append(response)
+                
+                # Rerun to display new messages
+                st.rerun()
+            
+            # Learning progress sidebar
+            with st.sidebar:
+                st.markdown("### 📊 Learning Progress")
+                
+                mentor = st.session_state.get('code_mentor')
+                if mentor:
+                    context = mentor.learning_context
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.metric("Files Explored", len(context['explored_files']))
+                    with col2:
+                        st.metric("Exercises", len(context['generated_exercises']))
+                    
+                    # Progress bar
+                    progress = min(len(context['explored_files']) * 10, 100)
+                    st.progress(progress / 100)
+                    st.caption(f"Understanding: {context['understanding_level'].title()}")
+                    
+                    # Completed exercises
+                    completed = [e for e in context['generated_exercises'] if e.get('completed')]
+                    if completed:
+                        st.markdown("**✅ Completed Exercises:**")
+                        for exercise in completed:
+                            st.write(f"• {exercise['topic']} ({exercise['difficulty']})")
+        
+        # NEW TAB 9: Performance Prediction
+        with tab9:
+            st.subheader("⚡ Performance Prediction Engine")
+            
+            # Get analysis data
+            if 'analysis_results' not in st.session_state:
+                st.warning("Please analyze a repository first to predict performance.")
+                st.stop()
+            
+            detailed_files = st.session_state['analysis_results']['analysis']['detailed_files']
+            
+            # Performance analysis button
+            if st.button("🔍 Analyze Performance", key="perf_button"):
+                with st.spinner("Predicting performance bottlenecks..."):
+                    # Initialize performance predictor
+                    predictor = PerformancePredictor()
+                    
+                    # Run analysis
+                    perf_report = predictor.analyze_performance(detailed_files)
+                    
+                    # Store in session state
+                    st.session_state['performance_report'] = perf_report
+            
+            # Display results if available
+            if 'performance_report' in st.session_state:
+                report = st.session_state['performance_report']
+                
+                # Performance Score Card
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    # Display score with color coding
+                    score = report['score']
+                    grade = report['grade']
+                    
+                    score_color = {
+                        'A': '#4CAF50',
+                        'B': '#8BC34A', 
+                        'C': '#FFC107',
+                        'D': '#FF9800',
+                        'F': '#F44336'
+                    }.get(grade, '#757575')
+                    
+                    st.markdown(f"""
+                    <div style="text-align: center; padding: 20px; background-color: {score_color}; 
+                                color: white; border-radius: 10px;">
+                        <h1 style="margin: 0;">{score}/100</h1>
+                        <h3 style="margin: 0;">Grade: {grade}</h3>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                with col2:
+                    st.metric("Total Issues", report['summary']['total_issues'])
+                    st.metric("Critical Issues", report['summary']['critical_issues'], 
+                             delta="-" + str(report['summary']['critical_issues']) if report['summary']['critical_issues'] > 0 else "0",
+                             delta_color="inverse")
+                
+                with col3:
+                    st.metric("Files Analyzed", report['summary']['files_analyzed'])
+                    st.metric("Functions Analyzed", report['summary']['functions_analyzed'])
+                
+                with col4:
+                    # Issue breakdown pie chart
+                    severity_counts = {
+                        'Critical': report['summary']['critical_issues'],
+                        'High': report['summary']['high_issues'],
+                        'Medium': len(report['issues_by_severity'].get('medium', [])),
+                        'Low': len(report['issues_by_severity'].get('low', []))
+                    }
+                    
+                    fig = go.Figure(data=[go.Pie(
+                        labels=list(severity_counts.keys()),
+                        values=list(severity_counts.values()),
+                        hole=.3,
+                        marker_colors=['#F44336', '#FF9800', '#FFC107', '#4CAF50']
+                    )])
+                    fig.update_layout(
+                        showlegend=False,
+                        height=200,
+                        margin=dict(t=0, b=0, l=0, r=0)
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                
+                # Performance Insights
+                st.markdown("### 💡 Performance Insights")
+                for insight in report['insights']:
+                    st.write(insight)
+                
+                # Critical Issues
+                if report['issues_by_severity'].get('critical'):
+                    st.markdown("### 🚨 Critical Performance Issues")
+                    for issue in report['issues_by_severity']['critical'][:5]:
+                        with st.expander(f"🔴 {issue.description}"):
+                            st.write(f"**Location:** `{issue.location}`")
+                            st.write(f"**Impact:** {issue.impact}")
+                            st.write(f"**Suggestion:** {issue.suggestion}")
+                            
+                            if issue.code_snippet:
+                                st.code(issue.code_snippet, language='python')
+                            
+                            if issue.estimated_complexity:
+                                st.write(f"**Complexity:** {issue.estimated_complexity}")
+                
+                # High Priority Issues
+                if report['issues_by_severity'].get('high'):
+                    st.markdown("### ⚠️ High Priority Issues")
+                    for issue in report['issues_by_severity']['high'][:5]:
+                        with st.expander(f"🟡 {issue.description}"):
+                            st.write(f"**Location:** `{issue.location}`")
+                            st.write(f"**Impact:** {issue.impact}")
+                            st.write(f"**Suggestion:** {issue.suggestion}")
+                            
+                            if issue.code_snippet:
+                                st.code(issue.code_snippet, language='python')
+                
+                # Performance Roadmap
+                if report.get('performance_roadmap'):
+                    st.markdown("### 🗺️ Performance Improvement Roadmap")
+                    for phase in report['performance_roadmap']:
+                        with st.expander(f"📋 {phase['phase']} ({phase['timeline']})"):
+                            st.write(phase['description'])
+                            for item in phase['items']:
+                                st.write(f"• **{item['title']}** - {item['description']}")
+                                st.caption(f"Impact: {item['impact']} | Effort: {item['effort']}")
     else:
         st.error(f"Analysis failed: {result.get('error', 'Unknown error')}")
