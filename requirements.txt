@@ -6,6 +6,13 @@ plotly>=5.15.0
 pandas>=1.5.0
 pathlib
 
+# Performance optimizations included:
+# - Parallel processing using concurrent.futures
+# - Smart caching with hashlib
+# - Intelligent file prioritization
+# - Batch AI requests
+# - Progressive loading with real-time updates
+
 # AI Model Services
 google-generativeai>=0.3.0  # For Gemini API
 openai>=1.0.0              # For OpenAI API

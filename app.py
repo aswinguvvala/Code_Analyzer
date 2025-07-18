@@ -8,13 +8,16 @@ import os
 import tempfile
 import shutil
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 import plotly.graph_objects as go
 import plotly.express as px
 import pandas as pd
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 import git
+import concurrent.futures
+from functools import partial
+import hashlib
 
 # Import our code quality analyzer
 from code_quality_analyzer import CodeQualityAnalyzer
@@ -630,6 +633,59 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+class AnalysisCache:
+    """Smart caching system for analysis results"""
+    
+    def __init__(self, cache_dir: str = "./cache"):
+        self.cache_dir = cache_dir
+        os.makedirs(cache_dir, exist_ok=True)
+    
+    def _get_cache_key(self, repo_url: str, analysis_type: str = "full") -> str:
+        """Generate cache key for repository"""
+        key_string = f"{repo_url}_{analysis_type}"
+        return hashlib.md5(key_string.encode()).hexdigest()
+    
+    def _get_cache_path(self, cache_key: str) -> str:
+        return os.path.join(self.cache_dir, f"{cache_key}.json")
+    
+    def get_cached_analysis(self, repo_url: str, max_age_hours: int = 24) -> Optional[Dict]:
+        """Get cached analysis if available and fresh"""
+        cache_key = self._get_cache_key(repo_url)
+        cache_path = self._get_cache_path(cache_key)
+        
+        if not os.path.exists(cache_path):
+            return None
+        
+        try:
+            with open(cache_path, 'r') as f:
+                cached_data = json.load(f)
+            
+            # Check if cache is still fresh
+            cached_time = datetime.fromisoformat(cached_data['timestamp'])
+            if datetime.now() - cached_time > timedelta(hours=max_age_hours):
+                return None
+            
+            return cached_data['analysis']
+        except Exception:
+            return None
+    
+    def save_analysis(self, repo_url: str, analysis_result: Dict):
+        """Save analysis result to cache"""
+        cache_key = self._get_cache_key(repo_url)
+        cache_path = self._get_cache_path(cache_key)
+        
+        cached_data = {
+            'timestamp': datetime.now().isoformat(),
+            'repo_url': repo_url,
+            'analysis': analysis_result
+        }
+        
+        try:
+            with open(cache_path, 'w') as f:
+                json.dump(cached_data, f, indent=2)
+        except Exception:
+            pass  # Fail silently if caching fails
+
 class RepositoryAnalyzer:
     """Enhanced repository analyzer with hybrid Gemini/Ollama approach"""
     
@@ -655,6 +711,9 @@ class RepositoryAnalyzer:
         # Initialize analyzers
         self.quality_analyzer = CodeQualityAnalyzer()
         self.visual_analyzer = IntelligentAdaptiveVisualAnalyzer()
+        
+        # Initialize cache system
+        self.cache = AnalysisCache()
     
     def _check_ollama(self) -> bool:
         """Check if Ollama is available"""
@@ -781,12 +840,19 @@ class RepositoryAnalyzer:
         return None
     
     def _clone_repository(self, repo_info: Dict[str, str]) -> str:
-        """Clone repository to analyze"""
+        """Clone repository with shallow cloning for faster performance"""
         temp_dir = tempfile.mkdtemp()
         repo_url = f"https://github.com/{repo_info['owner']}/{repo_info['repo']}.git"
         
         try:
-            git.Repo.clone_from(repo_url, temp_dir, depth=1)
+            # Shallow clone with depth=1 (only latest commit)
+            git.Repo.clone_from(
+                repo_url, 
+                temp_dir, 
+                depth=1,  # Only latest commit
+                single_branch=True,  # Only default branch
+                no_checkout=False
+            )
             return temp_dir
         except Exception as e:
             shutil.rmtree(temp_dir, ignore_errors=True)
@@ -848,97 +914,138 @@ class RepositoryAnalyzer:
         return classes[:10]
     
     def _analyze_code_structure(self, repo_path: str) -> Dict[str, Any]:
-        """Analyze repository structure and collect file details with quality metrics"""
-        analysis = {
-            "file_structure": {},
-            "technologies": [],
-            "key_files": [],
-            "detailed_files": {},
-            "quality_metrics": {}  # NEW: Add quality metrics to analysis
-        }
+        """Analyze repository structure with parallel processing for faster performance"""
+        # First, quickly scan for all files
+        all_files = []
+        for root, dirs, files in os.walk(repo_path):
+            dirs[:] = [d for d in dirs if not d.startswith('.') and d not in ['node_modules', '__pycache__', 'venv', 'env']]
+            for file in files:
+                if not file.startswith('.'):
+                    all_files.append(os.path.join(root, file))
         
+        # Process files in parallel batches
+        batch_size = 10  # Process 10 files at once
+        detailed_files = {}
         file_types = {}
         total_files = 0
         total_lines = 0
-        detailed_files = {}
+        key_files = []
         
-        for root, dirs, files in os.walk(repo_path):
-            # Skip hidden directories and common irrelevant folders
-            dirs[:] = [d for d in dirs if not d.startswith('.') and d not in ['node_modules', '__pycache__', 'venv', 'env']]
-            
-            for file in files:
-                if file.startswith('.'):
-                    continue
-                    
-                file_path = os.path.join(root, file)
-                file_ext = Path(file).suffix.lower()
-                relative_path = os.path.relpath(file_path, repo_path)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+            for i in range(0, len(all_files), batch_size):
+                batch = all_files[i:i + batch_size]
                 
-                file_types[file_ext] = file_types.get(file_ext, 0) + 1
-                total_files += 1
+                # Create partial function with repo_path
+                process_func = partial(self._process_single_file, repo_path)
+                
+                # Submit all files in batch
+                future_to_file = {executor.submit(process_func, file_path): file_path for file_path in batch}
+                
+                # Collect results as they complete
+                for future in concurrent.futures.as_completed(future_to_file):
+                    file_path = future_to_file[future]
+                    try:
+                        result = future.result()
+                        if result:
+                            relative_path = os.path.relpath(file_path, repo_path)
+                            detailed_files[relative_path] = result
+                            
+                            # Update counters
+                            file_ext = result.get('extension', '')
+                            file_types[file_ext] = file_types.get(file_ext, 0) + 1
+                            total_files += 1
+                            total_lines += result.get('lines', 0)
+                            
+                            # Check for key files
+                            file_name = Path(file_path).name.lower()
+                            if file_name in ['readme.md', 'requirements.txt', 'package.json', 'dockerfile', 'setup.py']:
+                                key_files.append(relative_path)
+                    except Exception:
+                        continue  # Skip problematic files
+        
+        # Build analysis structure
+        analysis = {
+            "file_structure": {
+                "total_files": total_files,
+                "file_types": file_types,
+                "total_lines": total_lines
+            },
+            "technologies": self._detect_technologies(file_types, key_files),
+            "key_files": key_files,
+            "detailed_files": detailed_files,
+            "quality_metrics": {}
+        }
+        
+        # Analyze code quality metrics
+        analysis["quality_metrics"] = self._analyze_quality_metrics(detailed_files)
+        
+        return analysis
+    
+    def _process_single_file(self, repo_path: str, file_path: str) -> Optional[Dict[str, Any]]:
+        """Process a single file - designed to be thread-safe"""
+        try:
+            file_ext = Path(file_path).suffix.lower()
+            
+            # Skip non-code files early
+            if file_ext not in ['.py', '.js', '.ts', '.java', '.cpp', '.c', '.go', '.rs', '.rb', '.php', '.cs', '.jsx', '.tsx', '.md', '.txt', '.json', '.yaml', '.yml']:
+                return None
+            
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                content = f.read()
+                lines = len(content.splitlines())
+                
+                if lines == 0:
+                    return None
                 
                 # Analyze code files
                 if file_ext in ['.py', '.js', '.ts', '.java', '.cpp', '.c', '.go', '.rs', '.rb', '.php', '.cs', '.jsx', '.tsx']:
-                    try:
-                        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                            content = f.read()
-                            lines = len(content.splitlines())
-                            total_lines += lines
-                            
-                            if lines > 0:
-                                detailed_files[relative_path] = {
-                                    "extension": file_ext,
-                                    "lines": lines,
-                                    "content_preview": content[:2000],
-                                    "full_content": content,  # Store full content for quality analysis
-                                    "imports": self._extract_imports(content, file_ext),
-                                    "functions": self._extract_functions(content, file_ext),
-                                    "classes": self._extract_classes(content, file_ext)
-                                }
-                    except Exception:
-                        continue
+                    return {
+                        "extension": file_ext,
+                        "lines": lines,
+                        "content_preview": content[:2000],
+                        "full_content": content,
+                        "imports": self._extract_imports(content, file_ext),
+                        "functions": self._extract_functions(content, file_ext),
+                        "classes": self._extract_classes(content, file_ext)
+                    }
                 
                 # Analyze important non-code files
-                elif file_ext in ['.md', '.txt', '.json', '.yaml', '.yml'] or file in ['README', 'LICENSE']:
-                    try:
-                        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                            content = f.read()
-                            if len(content.strip()) > 0:
-                                detailed_files[relative_path] = {
-                                    "extension": file_ext,
-                                    "lines": len(content.splitlines()),
-                                    "content_preview": content[:1000],
-                                    "file_type": "configuration" if file_ext in ['.json', '.yaml', '.yml'] else "documentation"
-                                }
-                    except Exception:
-                        continue
+                elif file_ext in ['.md', '.txt', '.json', '.yaml', '.yml'] or Path(file_path).name in ['README', 'LICENSE']:
+                    if len(content.strip()) > 0:
+                        return {
+                            "extension": file_ext,
+                            "lines": lines,
+                            "content_preview": content[:1000],
+                            "file_type": "configuration" if file_ext in ['.json', '.yaml', '.yml'] else "documentation"
+                        }
                 
-                # Identify key files
-                if file.lower() in ['readme.md', 'requirements.txt', 'package.json', 'dockerfile', 'setup.py']:
-                    analysis["key_files"].append(relative_path)
-        
-        analysis["file_structure"] = {
-            "total_files": total_files,
-            "file_types": file_types,
-            "total_lines": total_lines
-        }
-        
-        # Simple technology detection
+                return None
+        except Exception:
+            return None
+    
+    def _detect_technologies(self, file_types: Dict[str, int], key_files: List[str]) -> List[str]:
+        """Detect technologies used in the repository"""
         technologies = []
+        
         if '.py' in file_types: technologies.append("Python")
         if '.js' in file_types or '.jsx' in file_types: technologies.append("JavaScript")
         if '.ts' in file_types or '.tsx' in file_types: technologies.append("TypeScript")
         if '.java' in file_types: technologies.append("Java")
-        if 'package.json' in [f.lower() for f in analysis["key_files"]]: technologies.append("Node.js")
-        if 'requirements.txt' in [f.lower() for f in analysis["key_files"]]: technologies.append("Python Package")
+        if '.cpp' in file_types or '.c' in file_types: technologies.append("C/C++")
+        if '.go' in file_types: technologies.append("Go")
+        if '.rs' in file_types: technologies.append("Rust")
+        if '.rb' in file_types: technologies.append("Ruby")
+        if '.php' in file_types: technologies.append("PHP")
+        if '.cs' in file_types: technologies.append("C#")
         
-        analysis["technologies"] = technologies
-        analysis["detailed_files"] = detailed_files
+        # Check for specific frameworks/tools
+        key_files_lower = [f.lower() for f in key_files]
+        if 'package.json' in key_files_lower: technologies.append("Node.js")
+        if 'requirements.txt' in key_files_lower: technologies.append("Python Package")
+        if 'dockerfile' in key_files_lower: technologies.append("Docker")
+        if 'setup.py' in key_files_lower: technologies.append("Python Package")
         
-        # NEW: Analyze code quality metrics
-        analysis["quality_metrics"] = self._analyze_quality_metrics(detailed_files)
-        
-        return analysis
+        return technologies
     
     def _analyze_quality_metrics(self, detailed_files: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -1051,35 +1158,157 @@ Use clear, descriptive language with examples where helpful.
         except Exception as e:
             return f"File analysis failed: {str(e)}"
     
+    def _prioritize_files(self, detailed_files: Dict[str, Any]) -> List[Tuple[str, Dict[str, Any]]]:
+        """Prioritize files for analysis based on importance"""
+        
+        priority_scores = {}
+        
+        for file_path, file_info in detailed_files.items():
+            score = 0
+            file_name = Path(file_path).name.lower()
+            
+            # High priority files
+            if file_name in ['main.py', 'app.py', 'index.js', 'server.py', 'manage.py']:
+                score += 100
+            elif file_name in ['readme.md', 'package.json', 'requirements.txt', 'setup.py']:
+                score += 90
+            elif file_name.startswith('test_') or '/test' in file_path:
+                score += 20  # Lower priority for tests
+            
+            # Score by file size (bigger files are often more important)
+            lines = file_info.get('lines', 0)
+            if lines > 100:
+                score += 30
+            elif lines > 50:
+                score += 20
+            elif lines > 20:
+                score += 10
+            
+            # Score by file type
+            ext = file_info.get('extension', '')
+            if ext in ['.py', '.js', '.ts', '.java']:
+                score += 25
+            elif ext in ['.md', '.txt']:
+                score += 15
+            
+            # Boost for files with many functions/classes
+            functions = file_info.get('functions', [])
+            classes = file_info.get('classes', [])
+            if len(functions) + len(classes) > 5:
+                score += 20
+            elif len(functions) + len(classes) > 2:
+                score += 10
+            
+            priority_scores[file_path] = score
+        
+        # Sort by priority score
+        return sorted(detailed_files.items(), key=lambda x: priority_scores.get(x[0], 0), reverse=True)
+    
     async def _generate_file_explanations(self, detailed_files: Dict[str, Any]) -> Dict[str, str]:
-        """Generate explanations for individual files using LLM"""
+        """Generate explanations with intelligent prioritization"""
         if not self.gemini_available and not self.ollama_available:
             return {}
         
+        # Prioritize files
+        prioritized_files = self._prioritize_files(detailed_files)
+        
+        # Start with top 12 most important files
+        important_files = prioritized_files[:12]
+        
         file_explanations = {}
         
-        # Process important files first (limit to 20 files)
-        important_files = []
-        regular_files = []
-        
-        for file_path, file_info in detailed_files.items():
-            if (file_path.lower().endswith(('.py', '.js', '.ts', '.jsx', '.tsx', '.java')) and 
-                file_info.get('lines', 0) > 10) or file_path.lower() in ['readme.md', 'setup.py', 'package.json']:
-                important_files.append((file_path, file_info))
-            else:
-                regular_files.append((file_path, file_info))
-        
-        files_to_process = important_files[:15] + regular_files[:5]
-        
-        for file_path, file_info in files_to_process:
+        # Process important files first
+        for file_path, file_info in important_files:
             try:
                 explanation = await self._explain_single_file(file_path, file_info)
                 if explanation:
                     file_explanations[file_path] = explanation
             except Exception as e:
-                file_explanations[file_path] = f"Code file ({file_info.get('lines', 0)} lines) - Analysis failed"
+                file_explanations[file_path] = f"Analysis failed: {str(e)}"
         
         return file_explanations
+    
+    async def _explain_files_batch(self, file_batch: List[Tuple[str, Dict[str, Any]]]) -> Dict[str, str]:
+        """Explain multiple files in a single AI request"""
+        
+        if not file_batch:
+            return {}
+        
+        # Build batch context
+        batch_context = "Analyze these files from a code repository:\n\n"
+        
+        for i, (file_path, file_info) in enumerate(file_batch, 1):
+            batch_context += f"FILE {i}: {file_path}\n"
+            batch_context += f"Lines: {file_info.get('lines', 0)}\n"
+            batch_context += f"Content preview:\n{file_info.get('content_preview', '')[:800]}\n"
+            batch_context += "---\n\n"
+        
+        prompt = f"""
+        Analyze each file above and provide a detailed explanation for each one.
+        
+        {batch_context}
+        
+        For each file, provide:
+        1. Purpose and role in the project
+        2. Key functions/classes and what they do
+        3. How it interacts with other components
+        4. Any notable patterns or concerns
+        
+        Format your response as:
+        
+        FILE 1: [filename]
+        [Your detailed explanation here]
+        
+        FILE 2: [filename]
+        [Your detailed explanation here]
+        
+        And so on...
+        """
+        
+        try:
+            messages = [
+                {"role": "system", "content": "You are a code analyst providing detailed file explanations."},
+                {"role": "user", "content": prompt}
+            ]
+            
+            response = await self._call_llm_hybrid(messages, "batch file analysis")
+            
+            # Parse batch response back to individual file explanations
+            return self._parse_batch_response(response, file_batch)
+            
+        except Exception as e:
+            # Fallback to individual explanations for this batch
+            explanations = {}
+            for file_path, file_info in file_batch:
+                explanations[file_path] = f"Batch analysis failed, file has {file_info.get('lines', 0)} lines"
+            return explanations
+
+    def _parse_batch_response(self, response: str, file_batch: List[Tuple[str, Dict[str, Any]]]) -> Dict[str, str]:
+        """Parse batch AI response back to individual file explanations"""
+        
+        explanations = {}
+        
+        # Split response by FILE markers
+        sections = response.split('FILE ')
+        
+        for i, section in enumerate(sections[1:], 1):  # Skip first empty section
+            if i <= len(file_batch):
+                file_path = file_batch[i-1][0]
+                
+                # Extract explanation (everything after the first line)
+                lines = section.split('\n')
+                if len(lines) > 1:
+                    explanation = '\n'.join(lines[1:]).strip()
+                    explanations[file_path] = explanation
+                else:
+                    explanations[file_path] = f"Brief analysis: {section.strip()}"
+        
+        # Fill in any missing explanations
+        for file_path, file_info in file_batch:
+            if file_path not in explanations:
+                explanations[file_path] = f"Code file with {file_info.get('lines', 0)} lines"
+        
+        return explanations
     
     async def _generate_overall_insights(self, analysis: Dict[str, Any]) -> str:
         """Generate overall insights about the repository including quality assessment"""
@@ -1136,34 +1365,167 @@ Be insightful, reference specific files/metrics, and aim for 300-500 words.
             return f"Analysis failed: {str(e)}"
     
     async def analyze_repository(self, repo_url: str) -> Dict[str, Any]:
-        """Analyze a GitHub repository with enhanced quality metrics"""
-        # Parse repository info
-        repo_info = self._parse_repo_url(repo_url)
-        if not repo_info:
-            return {"error": "Invalid repository URL format", "success": False}
-        
+        """Analyze a GitHub repository with enhanced quality metrics and proper error handling"""
+        repo_path = None  # Initialize variable for cleanup
+        # Check cache first
+        cached_result = self.cache.get_cached_analysis(repo_url)
+        if cached_result:
+            return cached_result
+
         try:
-            # Clone and analyze repository
+            # Parse repository info
+            repo_info = self._parse_repo_url(repo_url)
+            if not repo_info:
+                return {"error": "Invalid repository URL format", "success": False}
+
+            # Clone repository
             repo_path = self._clone_repository(repo_info)
+
+            # Analyze code structure in thread pool
             analysis = await asyncio.get_event_loop().run_in_executor(
                 None, self._analyze_code_structure, repo_path
             )
-            
+
             # Generate file explanations
-            file_explanations = await self._generate_file_explanations(analysis["detailed_files"])
+            file_explanations = await self._generate_file_explanations(analysis.get("detailed_files", {}))
+            analysis["file_explanations"] = file_explanations
+
+            # Generate overall insights
+            insights = await self._generate_overall_insights(analysis)
+
+            result = {
+                "repository": f"{repo_info['owner']}/{repo_info['repo']}",
+                "analysis": analysis,
+                "insights": insights,
+                "success": True
+            }
+
+            # Cache the result for future requests
+            self.cache.save_analysis(repo_url, result)
+            return result
+
+        except Exception as e:
+            return {"error": str(e), "success": False}
+
+        finally:
+            # Cleanup cloned repository safely
+            if repo_path and os.path.exists(repo_path):
+                try:
+                    shutil.rmtree(repo_path, ignore_errors=True)
+                except Exception as cleanup_error:
+                    st.warning(f"⚠️ Cleanup warning: {str(cleanup_error)}")
+    
+    def analyze_repository_progressive(self, repo_url: str):
+        """Analyze repository with progressive loading and real-time updates"""
+        
+        # Create placeholders for different sections
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        # Section placeholders
+        basic_info_placeholder = st.empty()
+        file_structure_placeholder = st.empty()
+        file_explanations_placeholder = st.empty()
+        insights_placeholder = st.empty()
+        
+        try:
+            # Check cache first
+            status_text.text("🔍 Checking cache...")
+            progress_bar.progress(5)
+            
+            cached_result = self.cache.get_cached_analysis(repo_url)
+            if cached_result:
+                status_text.text("✅ Found cached analysis!")
+                progress_bar.progress(100)
+                return cached_result
+            
+            # Step 1: Parse URL and Clone repository (20% progress)
+            status_text.text("🔄 Cloning repository...")
+            progress_bar.progress(20)
+            
+            repo_info = self._parse_repo_url(repo_url)
+            if not repo_info:
+                st.error("Invalid repository URL format")
+                return
+            
+            repo_path = self._clone_repository(repo_info)
+            
+            # Step 2: Basic analysis (40% progress)
+            status_text.text("📊 Analyzing file structure...")
+            progress_bar.progress(40)
+            
+            analysis = self._analyze_code_structure(repo_path)
+            
+            # Show basic info immediately
+            with basic_info_placeholder.container():
+                st.subheader("📁 Repository Overview")
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Total Files", analysis["file_structure"]["total_files"])
+                with col2:
+                    st.metric("Lines of Code", analysis["file_structure"]["total_lines"])
+                with col3:
+                    st.metric("Technologies", len(analysis["technologies"]))
+                
+                if analysis["technologies"]:
+                    st.write("**Technologies detected:**", ", ".join(analysis["technologies"]))
+            
+            # Step 3: File structure display (50% progress)
+            status_text.text("📄 Displaying file structure...")
+            progress_bar.progress(50)
+            
+            with file_structure_placeholder.container():
+                st.subheader("🌳 File Structure")
+                if analysis["file_structure"]["file_types"]:
+                    # Create a simple visualization of file types
+                    file_types_df = pd.DataFrame(
+                        list(analysis["file_structure"]["file_types"].items()),
+                        columns=['Extension', 'Count']
+                    )
+                    st.bar_chart(file_types_df.set_index('Extension'))
+            
+            # Step 4: File explanations (70% progress)
+            status_text.text("🤖 Generating file explanations...")
+            progress_bar.progress(70)
+            
+            file_explanations = asyncio.run(self._generate_file_explanations(analysis["detailed_files"]))
             analysis["file_explanations"] = file_explanations
             
-            # Generate overall insights (now includes quality metrics)
-            insights = await self._generate_overall_insights(analysis)
+            # Show file explanations immediately
+            with file_explanations_placeholder.container():
+                st.subheader("📄 Key File Explanations")
+                for file_path, explanation in file_explanations.items():
+                    with st.expander(f"📄 {file_path}"):
+                        st.write(explanation)
             
-            return {
+            # Step 5: Overall insights (90% progress)
+            status_text.text("💡 Generating insights...")
+            progress_bar.progress(90)
+            
+            insights = asyncio.run(self._generate_overall_insights(analysis))
+            
+            # Show insights immediately
+            with insights_placeholder.container():
+                st.subheader("🤖 AI Insights")
+                st.write(insights)
+            
+            # Step 6: Save to cache and complete (100% progress)
+            result = {
                 "repository": f"{repo_info['owner']}/{repo_info['repo']}",
                 "analysis": analysis,
                 "insights": insights,
                 "success": True
             }
             
+            self.cache.save_analysis(repo_url, result)
+            
+            progress_bar.progress(100)
+            status_text.text("✅ Analysis complete!")
+            
+            return result
+            
         except Exception as e:
+            st.error(f"Analysis failed: {str(e)}")
             return {"error": str(e), "success": False}
         
         finally:
@@ -1335,19 +1697,23 @@ if analyze_button and repo_url:
     elif status["ollama_available"]:
         st.info("🤖 Using local Ollama for analysis...")
     
-    with st.spinner(f"🧠 Performing comprehensive analysis with visual diagrams... This may take 2-3 minutes"):
-        start_time = time.time()
+    # Use progressive loading instead of spinner
+    start_time = time.time()
+    
+    try:
+        result = analyzer.analyze_repository_progressive(repo_url)
+        end_time = time.time()
+        analysis_time = end_time - start_time
         
-        try:
-            result = asyncio.run(analyzer.analyze_repository(repo_url))
-            end_time = time.time()
-            analysis_time = end_time - start_time
-            
+        if result and result.get('success'):
             st.session_state['analysis_results'] = result
             st.session_state['analysis_time'] = analysis_time
+            st.success(f"🎉 Analysis completed in {analysis_time:.1f} seconds!")
+        else:
+            st.error(f"Analysis failed: {result.get('error', 'Unknown error')}")
             
-        except Exception as e:
-            st.error(f"Analysis failed: {str(e)}")
+    except Exception as e:
+        st.error(f"Analysis failed: {str(e)}")
 
 # Display results (ENHANCED WITH QUALITY METRICS)
 if 'analysis_results' in st.session_state:
@@ -1411,11 +1777,10 @@ if 'analysis_results' in st.session_state:
             ''', unsafe_allow_html=True)
         
         # Analysis tabs
-        tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
+        tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
             "📁 File Structure", 
             "📄 File Explanations",
             "🤖 AI Insights",
-            "⚙️ Technologies",
             "🏆 Code Quality",
             "🎨 Visual Analysis",
             "📈 Evolution Analysis",
@@ -1515,22 +1880,8 @@ if 'analysis_results' in st.session_state:
             else:
                 st.info("AI insights not available. Configure Gemini API key or make sure Ollama is running.")
         
-        with tab4:
-            st.subheader("Technology Stack")
-            
-            if analysis['technologies']:
-                for tech in analysis['technologies']:
-                    st.markdown(f"🔧 **{tech}**")
-            else:
-                st.info("No specific technologies detected")
-            
-            if analysis.get('key_files'):
-                st.subheader("📋 Key Files Found")
-                for file in analysis['key_files']:
-                    st.markdown(f"📄 `{file}`")
-        
         # NEW: Code Quality Tab
-        with tab5:
+        with tab4:
             st.subheader("🏆 Code Quality Analysis")
             
             if quality_metrics:
@@ -1658,7 +2009,7 @@ if 'analysis_results' in st.session_state:
                 st.info("Code quality analysis not available. This feature works best with Python repositories.")
         
         # NEW: Enhanced Visual Analysis Tab
-        with tab6:
+        with tab5:
             st.subheader("🎨 Intelligent Visual Analysis")
             
             visual_data = quality_metrics.get('visual_analysis', {})
@@ -1856,7 +2207,7 @@ if 'analysis_results' in st.session_state:
                 st.info("💡 The intelligent analyzer works best with Python, JavaScript, TypeScript, Java, and other common programming languages.")
         
         # NEW TAB 7: Evolution Analysis
-        with tab7:
+        with tab6:
             st.subheader("📈 Code Evolution Analysis")
             
             if st.button("🕰️ Analyze Repository Evolution", key="evolution_button"):
@@ -1950,19 +2301,20 @@ if 'analysis_results' in st.session_state:
                         st.error(f"Evolution analysis failed: {str(e)}")
         
         # NEW TAB 8: Code Mentor
-        with tab8:
+        with tab7:
             st.subheader("🎓 Interactive Code Mentor")
             
             # Initialize mentor in session state
             if 'code_mentor' not in st.session_state:
                 if 'analysis_results' in st.session_state:
-                    st.session_state.code_mentor = InteractiveCodeMentor(
-                        st.session_state['analysis_results'],
-                        analyzer._call_llm_hybrid  # Your hybrid LLM function
+                    # Instantiate mentor with analyzer instance
+                    st.session_state.code_mentor = InteractiveCodeMentor(analyzer)
+                    # Provide the analysis context to the mentor
+                    st.session_state.code_mentor.set_analysis_context(
+                        st.session_state['analysis_results']
                     )
-                    # Start the session
-                    welcome = st.session_state.code_mentor.start_mentor_session()
-                    st.session_state.mentor_messages = [welcome]
+                    # Initialize empty conversation history
+                    st.session_state.mentor_messages = []
                 else:
                     st.warning("Please analyze a repository first to start the Code Mentor.")
                     st.stop()
@@ -2078,7 +2430,7 @@ if 'analysis_results' in st.session_state:
                     response = asyncio.run(
                         st.session_state.code_mentor.process_question(question)
                     )
-                    st.session_state.mentor_messages.append(response)
+                    st.session_state.mentor_messages.append({'message': response})
                 
                 # Rerun to display new messages
                 st.rerun()
@@ -2110,7 +2462,7 @@ if 'analysis_results' in st.session_state:
                             st.write(f"• {exercise['topic']} ({exercise['difficulty']})")
         
         # NEW TAB 9: Performance Prediction
-        with tab9:
+        with tab8:
             st.subheader("⚡ Performance Prediction Engine")
             
             # Get analysis data
