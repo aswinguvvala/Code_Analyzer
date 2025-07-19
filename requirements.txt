@@ -30,7 +30,7 @@ azure-cognitiveservices-language-luis>=0.7.0  # Azure AI (optional)
 
 # Environment and logging
 python-dotenv>=1.0.0       # For environment variables
-logging
+#logging
 
 # Development dependencies (optional)
 # pytest>=7.4.0
