@@ -121,6 +121,11 @@ class InteractiveCodeMentor:
         """
         question_lower = question.lower()
         
+        # Check for project-specific questions first
+        project_keywords = ['flow', 'project', 'architecture', 'structure', 'overview', 'how does this', 'what is this', 'explain this', 'this project', 'this code', 'this repository', 'this repo']
+        if any(keyword in question_lower for keyword in project_keywords):
+            return 'analysis_specific'  # Treat as analysis-specific to get project context
+        
         # Look for keywords that indicate different types of questions
         if any(word in question_lower for word in ['analysis', 'result', 'score', 'quality']):
             return 'analysis_specific'
@@ -143,6 +148,45 @@ class InteractiveCodeMentor:
             A helpful response to the general question
         """
         try:
+            # If we have current analysis context, provide project-specific responses
+            if self.current_analysis:
+                # Build context about the current project
+                analysis = self.current_analysis.get('analysis', {})
+                repo_name = self.current_analysis.get('repository', 'this project')
+                
+                context = f"""
+                You are discussing the Code Analyzer project ({repo_name}).
+                
+                This is a sophisticated code analysis tool with the following structure:
+                - File Structure: {analysis.get('file_structure', {}).get('total_files', 'Multiple')} files analyzed
+                - Technologies: {', '.join(analysis.get('technologies', ['Python', 'Streamlit']))}
+                - Key components: Repository analysis, AI insights, quality metrics, visual analysis
+                
+                The project flow involves:
+                1. User inputs GitHub repository URL
+                2. Repository is cloned and analyzed
+                3. Multiple analysis components run (structure, quality, AI insights)
+                4. Results displayed in interactive tabs
+                5. User can interact via Code Mentor for learning
+                
+                Answer the user's question in the context of THIS specific project.
+                """
+                
+                if self.analyzer and hasattr(self.analyzer, '_call_llm_hybrid'):
+                    messages = [
+                        {
+                            "role": "system", 
+                            "content": context
+                        },
+                        {
+                            "role": "user", 
+                            "content": f"User question about this Code Analyzer project: {question}"
+                        }
+                    ]
+                    
+                    response = await self.analyzer._call_llm_hybrid(messages, "project-specific question")
+                    return response
+            
             # If we have an analyzer available, use it to generate a response
             if self.analyzer and hasattr(self.analyzer, '_call_llm_hybrid'):
                 messages = [
