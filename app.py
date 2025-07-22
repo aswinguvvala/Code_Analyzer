@@ -18,15 +18,13 @@ import git
 import concurrent.futures
 from functools import partial
 import hashlib
+import io
 
 # Import our code quality analyzer
 from code_quality_analyzer import CodeQualityAnalyzer
-from visual_code_analyzer import IntelligentAdaptiveVisualAnalyzer
 
 # Import new analyzers
-from code_evolution_analyzer import CodeEvolutionAnalyzer
 from code_mentor import InteractiveCodeMentor
-from performance_predictor import PerformancePredictor
 
 # Import Google Gemini for hybrid analysis
 try:
@@ -261,7 +259,7 @@ def create_text_flowchart(diagram_code: str, title: str):
     """
     Create a simple text-based flowchart as fallback
     """
-    st.markdown("#### 📊 Text-based Flow Visualization")
+    st.markdown("#### Text-based Flow Visualization")
     
     if not diagram_code:
         st.info("No flow data available")
@@ -326,7 +324,7 @@ def render_mermaid_diagram(diagram_code: str, title: str, description: str, heig
     is_safari = detect_safari_browser()
     
     # Debug information
-    with st.expander("🔧 Debug Info", expanded=False):
+    with st.expander("Debug Info", expanded=False):
         st.write(f"**Mermaid Available:** {MERMAID_AVAILABLE}")
         st.write(f"**Mermaid Functional:** {MERMAID_FUNCTIONAL}")
         st.write(f"**Diagram Length:** {len(cleaned_code) if cleaned_code else 0}")
@@ -362,12 +360,12 @@ def render_mermaid_diagram(diagram_code: str, title: str, description: str, heig
             diagram_rendered = True
             
         except Exception as e:
-            st.warning(f"⚠️ Mermaid rendering failed: {str(e)}")
+            st.warning(f"Warning: Mermaid rendering failed: {str(e)}")
             # Continue to fallback options
     
     # Fallback 1: Create Plotly-based visualization
     if not diagram_rendered:
-        st.info("🔄 Using alternative visualization (Safari-friendly)")
+        st.info("Using alternative visualization (Safari-friendly)")
         
         # Create a Plotly-based diagram as fallback
         plotly_fig = create_plotly_diagram_from_mermaid(cleaned_code, title)
@@ -379,9 +377,9 @@ def render_mermaid_diagram(diagram_code: str, title: str, description: str, heig
             create_text_flowchart(cleaned_code, title)
     
     # Always show expandable source code
-    with st.expander("🔍 View Diagram Source Code"):
+    with st.expander("View Diagram Source Code"):
         st.code(cleaned_code, language='mermaid')
-        st.markdown("**💡 Tip:** Copy this code to [Mermaid Live](https://mermaid.live/) if diagrams don't render")
+        st.markdown("**Tip:** Copy this code to [Mermaid Live](https://mermaid.live/) if diagrams don't render")
         
         col1, col2 = st.columns([3, 1])
         
@@ -394,15 +392,15 @@ def render_mermaid_diagram(diagram_code: str, title: str, description: str, heig
                 encoded_diagram = urllib.parse.quote(diagram_code)
                 live_editor_url = f"https://mermaid.live/edit#{encoded_diagram}"
                 
-                st.markdown(f"🎯 [**View Live Diagram**]({live_editor_url})")
+                st.markdown(f"[**View Live Diagram**]({live_editor_url})")
                 
             except Exception:
                 pass  # If encoding fails, just skip the live link
         
         with col2:
             st.markdown("**Quick Links:**")
-            st.markdown("🔗 [Mermaid Live Editor](https://mermaid.live)")
-            st.markdown("📚 [Mermaid Documentation](https://mermaid.js.org/)")
+            st.markdown("[Mermaid Live Editor](https://mermaid.live)")
+            st.markdown("[Mermaid Documentation](https://mermaid.js.org/)")
         
         # Create alternative text-based visualization
         _create_text_based_diagram(diagram_code, title)
@@ -410,7 +408,7 @@ def render_mermaid_diagram(diagram_code: str, title: str, description: str, heig
 def _create_text_based_diagram(diagram_code: str, title: str):
     """Create a simple text-based representation of the diagram"""
     try:
-        st.markdown("### 🎨 Text-Based Visualization")
+        st.markdown("### Text-Based Visualization")
         
         lines = diagram_code.split('\n')
         nodes = []
@@ -430,7 +428,7 @@ def _create_text_based_diagram(diagram_code: str, title: str):
                 end = line.find(']')
                 if start < end:
                     node_text = line[start+1:end].replace('"', '')
-                    nodes.append(f"📦 {node_text}")
+                    nodes.append(f"Package: {node_text}")
         
         if nodes:
             st.markdown("**Components:**")
@@ -538,99 +536,406 @@ def create_plotly_network_diagram(visual_data: Dict[str, Any], title: str) -> Op
 
 # Configure Streamlit page
 st.set_page_config(
-    page_title="🚀 Free LLM Repository Analyzer",
-    page_icon="🚀",
+    page_title="Code Analyzer",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
-# Enhanced CSS with new styles for quality metrics
+# Force Dark Theme and Modern Styling
 st.markdown("""
 <style>
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
+    
+    /* CSS Reset and Force Dark Theme */
+    * {
+        color: #ffffff !important;
+    }
+    
+    /* Force dark background on main app */
+    .stApp {
+        background: linear-gradient(135deg, #0f0f23 0%, #1a1a2e 25%, #16213e 50%, #0f3460 75%, #0066ff 100%) !important;
+        background-attachment: fixed !important;
+        min-height: 100vh !important;
+        position: relative !important;
+    }
+    
+    /* Animated background overlay */
+    .stApp::before {
+        content: '' !important;
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        width: 100% !important;
+        height: 100% !important;
+        background: 
+            repeating-linear-gradient(
+                45deg,
+                transparent,
+                transparent 2px,
+                rgba(0, 102, 255, 0.05) 2px,
+                rgba(0, 102, 255, 0.05) 4px
+            ) !important;
+        z-index: -1 !important;
+        animation: backgroundShift 20s ease-in-out infinite !important;
+        pointer-events: none !important;
+    }
+    
+    /* Floating particles */
+    .stApp::after {
+        content: '' !important;
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        width: 100% !important;
+        height: 100% !important;
+        background-image: 
+            radial-gradient(circle at 20% 80%, rgba(0, 255, 136, 0.1) 0%, transparent 50%),
+            radial-gradient(circle at 80% 20%, rgba(139, 92, 246, 0.1) 0%, transparent 50%),
+            radial-gradient(circle at 40% 40%, rgba(0, 102, 255, 0.1) 0%, transparent 50%) !important;
+        z-index: 0 !important;
+        animation: particleFloat 15s ease-in-out infinite !important;
+        pointer-events: none !important;
+    }
+    
+    @keyframes backgroundShift {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.6; }
+    }
+    
+    @keyframes particleFloat {
+        0%, 100% { transform: translateY(0px) rotate(0deg); }
+        33% { transform: translateY(-10px) rotate(1deg); }
+        66% { transform: translateY(5px) rotate(-0.5deg); }
+    }
+    
+    /* Main container styling */
+    .main .block-container {
+        background: rgba(15, 15, 35, 0.85) !important;
+        backdrop-filter: blur(20px) !important;
+        border: 1px solid rgba(0, 102, 255, 0.2) !important;
+        border-radius: 20px !important;
+        padding: 2rem !important;
+        margin-top: 1rem !important;
+        position: relative !important;
+        z-index: 1 !important;
+    }
+    
+    /* Header animations */
     .main-title {
-        text-align: center;
-        color: #2E86AB;
-        font-size: 2.5rem;
-        margin-bottom: 2rem;
+        font-family: 'JetBrains Mono', monospace !important;
+        font-size: 3.5rem !important;
+        font-weight: 700 !important;
+        background: linear-gradient(135deg, #00ff88, #0066ff, #8b5cf6) !important;
+        background-size: 300% 300% !important;
+        -webkit-background-clip: text !important;
+        -webkit-text-fill-color: transparent !important;
+        background-clip: text !important;
+        animation: gradientShift 4s ease-in-out infinite !important;
+        text-align: center !important;
+        margin: 2rem 0 !important;
+        position: relative !important;
     }
-    .status-success {
-        color: #27AE60;
-        background-color: #E8F5E8;
-        padding: 1rem;
-        border-radius: 8px;
-        margin: 1rem 0;
+    
+    .main-title::before {
+        content: '< ' !important;
+        color: #00ff88 !important;
+        animation: pulse 2s ease-in-out infinite !important;
+        -webkit-text-fill-color: #00ff88 !important;
     }
-    .status-error {
-        color: #E74C3C;
-        background-color: #FADBD8;
-        padding: 1rem;
-        border-radius: 8px;
-        margin: 1rem 0;
+    
+    .main-title::after {
+        content: ' />' !important;
+        color: #8b5cf6 !important;
+        animation: pulse 2s ease-in-out infinite reverse !important;
+        -webkit-text-fill-color: #8b5cf6 !important;
     }
-    .metric-box {
-        background-color: #F8F9FA;
-        padding: 1rem;
-        border-radius: 8px;
-        border-left: 4px solid #2E86AB;
+    
+    .subtitle {
+        font-size: 1.3rem !important;
+        color: rgba(255, 255, 255, 0.8) !important;
+        text-align: center !important;
+        margin-bottom: 3rem !important;
+        animation: fadeInUp 1s ease-out 0.5s both !important;
     }
-    .cost-free {
-        color: #27AE60;
-        font-weight: bold;
-        font-size: 1.2em;
+    
+    @keyframes gradientShift {
+        0%, 100% { background-position: 0% 50%; }
+        50% { background-position: 100% 50%; }
     }
-    .quality-score-a {
-        background: linear-gradient(135deg, #27AE60, #2ECC71);
-        color: white;
-        padding: 1rem;
-        border-radius: 8px;
-        text-align: center;
-        font-size: 1.2em;
-        font-weight: bold;
+    
+    @keyframes pulse {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50% { opacity: 0.7; transform: scale(1.05); }
     }
+    
+    @keyframes fadeInUp {
+        from {
+            opacity: 0;
+            transform: translateY(20px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+    
+    /* Enhanced Buttons with stronger selectors */
+    .stButton > button,
+    div[data-testid="stButton"] > button {
+        background: linear-gradient(135deg, #0066ff, #8b5cf6) !important;
+        color: white !important;
+        border: none !important;
+        border-radius: 12px !important;
+        padding: 0.75rem 2rem !important;
+        font-weight: 600 !important;
+        font-size: 1rem !important;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        position: relative !important;
+        overflow: hidden !important;
+        box-shadow: 0 4px 15px rgba(0, 102, 255, 0.3) !important;
+    }
+    
+    .stButton > button:hover,
+    div[data-testid="stButton"] > button:hover {
+        transform: translateY(-2px) scale(1.02) !important;
+        box-shadow: 0 8px 25px rgba(0, 102, 255, 0.4) !important;
+        background: linear-gradient(135deg, #0052cc, #7c3aed) !important;
+    }
+    
+    /* Input Styling with glassmorphism */
+    .stTextInput > div > div > input,
+    div[data-testid="textInput"] input {
+        background: rgba(255, 255, 255, 0.1) !important;
+        backdrop-filter: blur(15px) !important;
+        border: 1px solid rgba(255, 255, 255, 0.3) !important;
+        border-radius: 12px !important;
+        color: white !important;
+        padding: 0.75rem 1rem !important;
+        font-size: 1rem !important;
+        transition: all 0.3s ease !important;
+    }
+    
+    .stTextInput > div > div > input:focus,
+    div[data-testid="textInput"] input:focus {
+        border-color: #00ff88 !important;
+        box-shadow: 0 0 0 2px rgba(0, 255, 136, 0.3) !important;
+        transform: scale(1.02) !important;
+        background: rgba(255, 255, 255, 0.15) !important;
+    }
+    
+    /* Tab Styling */
+    .stTabs [data-baseweb="tab-list"] {
+        background: rgba(255, 255, 255, 0.1) !important;
+        backdrop-filter: blur(15px) !important;
+        border-radius: 16px !important;
+        padding: 8px !important;
+        border: 1px solid rgba(255, 255, 255, 0.2) !important;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3) !important;
+    }
+    
+    .stTabs [data-baseweb="tab"] {
+        background: transparent !important;
+        color: rgba(255, 255, 255, 0.7) !important;
+        border-radius: 12px !important;
+        font-weight: 500 !important;
+        padding: 12px 24px !important;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        border: none !important;
+    }
+    
+    .stTabs [data-baseweb="tab"]:hover {
+        color: #00ff88 !important;
+        background: rgba(0, 255, 136, 0.15) !important;
+        transform: translateY(-1px) !important;
+    }
+    
+    .stTabs [aria-selected="true"] {
+        background: linear-gradient(135deg, #00ff88, #0066ff) !important;
+        color: #ffffff !important;
+        box-shadow: 0 4px 15px rgba(0, 255, 136, 0.4) !important;
+        transform: translateY(-1px) !important;
+    }
+    
+    /* Metrics Styling */
+    div[data-testid="metric-container"] {
+        background: rgba(255, 255, 255, 0.1) !important;
+        backdrop-filter: blur(15px) !important;
+        border: 1px solid rgba(255, 255, 255, 0.2) !important;
+        border-radius: 16px !important;
+        padding: 1.5rem !important;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        position: relative !important;
+        overflow: hidden !important;
+    }
+    
+    div[data-testid="metric-container"]:hover {
+        transform: translateY(-5px) scale(1.02) !important;
+        box-shadow: 0 15px 35px rgba(0, 255, 136, 0.15) !important;
+        border-color: rgba(0, 255, 136, 0.4) !important;
+    }
+    
+    /* Expander Styling */
+    .streamlit-expanderHeader {
+        background: rgba(255, 255, 255, 0.1) !important;
+        backdrop-filter: blur(15px) !important;
+        border: 1px solid rgba(255, 255, 255, 0.2) !important;
+        border-radius: 12px !important;
+        color: white !important;
+    }
+    
+    .streamlit-expanderContent {
+        background: rgba(255, 255, 255, 0.05) !important;
+        backdrop-filter: blur(10px) !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        border-radius: 12px !important;
+        margin-top: 0.5rem !important;
+    }
+    
+    /* Success/Error Messages */
+    .stAlert > div {
+        background: rgba(0, 255, 136, 0.15) !important;
+        border: 1px solid rgba(0, 255, 136, 0.3) !important;
+        color: #00ff88 !important;
+        border-radius: 12px !important;
+        backdrop-filter: blur(10px) !important;
+    }
+    
+    .stAlert[data-baseweb="notification"] {
+        animation: fadeInUp 0.5s ease-out !important;
+    }
+    
+    /* Override any remaining light theme elements */
+    .stMarkdown, .stText, .stJson, .stDataFrame {
+        color: #ffffff !important;
+        background: transparent !important;
+    }
+    
+    /* Sidebar removal - hide completely */
+    .css-1d391kg, .css-1lcbmhc, .css-17ziqus, .css-1y4p8pa {
+        display: none !important;
+    }
+    
     .quality-score-b {
-        background: linear-gradient(135deg, #3498DB, #5DADE2);
+        background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
         color: white;
-        padding: 1rem;
-        border-radius: 8px;
+        padding: 1.5rem;
+        border-radius: 12px;
         text-align: center;
         font-size: 1.2em;
-        font-weight: bold;
+        font-weight: 600;
+        box-shadow: 0 8px 32px rgba(59, 130, 246, 0.3);
     }
+    
     .quality-score-c {
-        background: linear-gradient(135deg, #F39C12, #F4D03F);
+        background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
         color: white;
-        padding: 1rem;
-        border-radius: 8px;
+        padding: 1.5rem;
+        border-radius: 12px;
         text-align: center;
         font-size: 1.2em;
-        font-weight: bold;
+        font-weight: 600;
+        box-shadow: 0 8px 32px rgba(245, 158, 11, 0.3);
     }
+    
     .quality-score-d {
-        background: linear-gradient(135deg, #E67E22, #F8C471);
+        background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
         color: white;
-        padding: 1rem;
-        border-radius: 8px;
+        padding: 1.5rem;
+        border-radius: 12px;
         text-align: center;
         font-size: 1.2em;
-        font-weight: bold;
+        font-weight: 600;
+        box-shadow: 0 8px 32px rgba(249, 115, 22, 0.3);
     }
+    
     .quality-score-f {
-        background: linear-gradient(135deg, #E74C3C, #EC7063);
+        background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
         color: white;
-        padding: 1rem;
-        border-radius: 8px;
+        padding: 1.5rem;
+        border-radius: 12px;
         text-align: center;
         font-size: 1.2em;
-        font-weight: bold;
+        font-weight: 600;
+        box-shadow: 0 8px 32px rgba(239, 68, 68, 0.3);
     }
+    
     .recommendation-box {
-        background-color: #EBF3FD;
-        border-left: 4px solid #3498DB;
-        padding: 1rem;
+        background: rgba(59, 130, 246, 0.1);
+        border: 1px solid rgba(59, 130, 246, 0.3);
+        padding: 1.5rem;
         margin: 0.5rem 0;
-        border-radius: 4px;
+        border-radius: 12px;
+        backdrop-filter: blur(10px);
+        color: #ffffff;
+    }
+    
+    .stSelectbox > div > div {
+        background: rgba(45, 55, 72, 0.8);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 8px;
+        color: #ffffff;
+    }
+    
+    .stTextInput > div > div > input {
+        background: rgba(45, 55, 72, 0.8);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 8px;
+        color: #ffffff;
+    }
+    
+    .stButton > button {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border: none;
+        border-radius: 8px;
+        padding: 0.6rem 2rem;
+        font-weight: 500;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+    }
+    
+    .stButton > button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
+    }
+    
+    .sidebar .sidebar-content {
+        background: rgba(30, 39, 46, 0.9);
+        backdrop-filter: blur(10px);
+    }
+    
+    .stExpander {
+        background: rgba(45, 55, 72, 0.6);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 12px;
+        backdrop-filter: blur(10px);
+    }
+    
+    .stMetric {
+        background: rgba(45, 55, 72, 0.6);
+        padding: 1rem;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        backdrop-filter: blur(10px);
+    }
+    
+    h1, h2, h3, h4, h5, h6 {
+        color: #ffffff;
+        font-family: 'Inter', sans-serif;
+    }
+    
+    .stMarkdown {
+        color: #cbd5e0;
     }
 </style>
+""", unsafe_allow_html=True)
+
+# Creative Header
+st.markdown("""
+<div class="main-header">
+    <h1 class="main-title">CodeScope</h1>
+    <p class="subtitle">AI-Powered Repository Analysis Platform</p>
+</div>
 """, unsafe_allow_html=True)
 
 class AnalysisCache:
@@ -689,31 +994,44 @@ class AnalysisCache:
 class RepositoryAnalyzer:
     """Enhanced repository analyzer with hybrid Gemini/Ollama approach"""
     
-    def __init__(self, gemini_api_key: str = None):
-        # Initialize Gemini if API key is provided
-        self.gemini_model = None
-        self.gemini_available = False
-        self.api_requests_made = 0
-        self.api_limit_reached = False
+    def __init__(self, gemini_api_keys: List[str] = None):
+        # Initialize model services
+        from model_service import GeminiService, OllamaService
         
-        if gemini_api_key and GEMINI_AVAILABLE:
+        self.gemini_service = None
+        self.api_requests_made = 0
+        
+        # Initialize Gemini service if API keys are provided
+        if gemini_api_keys and GEMINI_AVAILABLE:
             try:
-                genai.configure(api_key=gemini_api_key)
-                self.gemini_model = genai.GenerativeModel('gemini-1.5-flash')
-                self.gemini_available = True
+                self.gemini_service = GeminiService(gemini_api_keys)
+                if self.gemini_service.is_available():
+                    st.success(f"Gemini service initialized with {len(gemini_api_keys)} API keys")
+                else:
+                    st.warning("Warning: Gemini service initialized but no keys are available")
             except Exception as e:
-                st.warning(f"⚠️ Gemini API initialization failed: {str(e)}")
-                self.gemini_available = False
+                st.error(f"Failed to initialize Gemini service: {e}")
+                self.gemini_service = None
         
         # Initialize Ollama
         self.ollama_available = self._check_ollama()
         
         # Initialize analyzers
         self.quality_analyzer = CodeQualityAnalyzer()
-        self.visual_analyzer = IntelligentAdaptiveVisualAnalyzer()
         
         # Initialize cache system
         self.cache = AnalysisCache()
+    
+    @property
+    def model_service(self):
+        """Get the available model service (Gemini preferred, Ollama fallback)"""
+        if self.gemini_service and self.gemini_service.is_available():
+            return self.gemini_service
+        # Fallback to Ollama if available
+        if self.ollama_service and self.ollama_service.is_available():
+            return self.ollama_service
+        # Return None if no service is available
+        return None
     
     def _check_ollama(self) -> bool:
         """Check if Ollama is available"""
@@ -726,42 +1044,30 @@ class RepositoryAnalyzer:
     
     async def _call_gemini(self, messages: List[Dict], max_retries: int = 3) -> str:
         """Call Gemini API with retry logic"""
-        if not self.gemini_available or self.api_limit_reached:
+        if not self.gemini_service or not self.gemini_service.is_available():
             return None
         
-        # Convert messages to a single prompt
-        prompt = ""
-        for msg in messages:
-            if msg["role"] == "system":
-                prompt += f"System: {msg['content']}\n\n"
-            elif msg["role"] == "user":
-                prompt += f"User: {msg['content']}\n\n"
-        
-        for attempt in range(max_retries):
-            try:
-                response = self.gemini_model.generate_content(prompt)
-                if response.text:
-                    self.api_requests_made += 1
-                    return response.text.strip()
-                else:
-                    return None
-            except Exception as e:
-                error_msg = str(e).lower()
-                if 'quota' in error_msg or 'rate limit' in error_msg:
-                    self.api_limit_reached = True
-                    return None
-                elif attempt == max_retries - 1:
-                    return None
-                else:
-                    # Wait before retry
-                    await asyncio.sleep(2 ** attempt)
-        
-        return None
+        try:
+            response = await self.gemini_service.generate_response(messages, max_retries=max_retries)
+            if response:
+                self.api_requests_made += 1
+                return response
+            else:
+                return None
+        except Exception as e:
+            # Check if all keys are exhausted
+            if "All Gemini API keys" in str(e):
+                st.warning("Warning: All Gemini API keys are rate limited, switching to Ollama")
+            return None
     
-    async def _call_ollama(self, messages: List[Dict], model: str = "llama3.2:3b") -> str:
+    async def _call_ollama(self, messages: List[Dict], model: str = None) -> str:
         """Call Ollama API"""
         import subprocess
         import json
+        
+        # Use selected model from session state if not specified
+        if model is None:
+            model = st.session_state.get('selected_ollama_model', 'llama3.2:3b')
         
         # Create prompt from messages
         prompt = ""
@@ -801,7 +1107,7 @@ class RepositoryAnalyzer:
         """Hybrid LLM call: Try Gemini first, fallback to Ollama"""
         
         # Try Gemini first if available and not over quota
-        if self.gemini_available and not self.api_limit_reached:
+        if self.gemini_service and self.gemini_service.is_available():
             try:
                 response = await self._call_gemini(messages)
                 if response:
@@ -809,11 +1115,11 @@ class RepositoryAnalyzer:
                 else:
                     # If Gemini fails, log it and fallback to Ollama
                     if self.api_limit_reached:
-                        st.info("🔄 API quota reached, switching to local Ollama...")
+                        st.info("API quota reached, switching to local Ollama...")
                     else:
-                        st.info("🔄 Gemini API failed, switching to local Ollama...")
+                        st.info("Gemini API failed, switching to local Ollama...")
             except Exception as e:
-                st.info(f"🔄 Gemini error: {str(e)}, switching to local Ollama...")
+                st.info(f"Gemini error: {str(e)}, switching to local Ollama...")
         
         # Fallback to Ollama
         if self.ollama_available:
@@ -963,6 +1269,12 @@ class RepositoryAnalyzer:
                     except Exception:
                         continue  # Skip problematic files
         
+        # Store context for enhanced analysis
+        self._current_detailed_files = detailed_files
+        self._current_technologies = self._detect_technologies(file_types, key_files)
+        self._total_files_count = total_files
+        self._key_files = key_files
+        
         # Build analysis structure
         analysis = {
             "file_structure": {
@@ -970,7 +1282,7 @@ class RepositoryAnalyzer:
                 "file_types": file_types,
                 "total_lines": total_lines
             },
-            "technologies": self._detect_technologies(file_types, key_files),
+            "technologies": self._current_technologies,
             "key_files": key_files,
             "detailed_files": detailed_files,
             "quality_metrics": {}
@@ -1059,7 +1371,6 @@ class RepositoryAnalyzer:
             "comment_ratio": 0,
             "security": {},  # NEW: Security analysis
             "dependencies": {},  # NEW: Dependency analysis
-            "architecture": {},  # NEW: Architecture analysis
             "overall_score": {}
         }
         
@@ -1107,8 +1418,6 @@ class RepositoryAnalyzer:
         # Analyze function sizes
         quality_metrics["function_sizes"] = self.quality_analyzer.analyze_function_sizes(detailed_files)
         
-        # NEW: Visual Analysis
-        quality_metrics["visual_analysis"] = self.visual_analyzer.analyze_code_visually(detailed_files)
         
         # Generate overall quality score (now includes all metrics)
         quality_metrics["overall_score"] = self.quality_analyzer.generate_quality_score(quality_metrics)
@@ -1116,39 +1425,91 @@ class RepositoryAnalyzer:
         return quality_metrics
     
     async def _explain_single_file(self, file_path: str, file_info: Dict[str, Any]) -> str:
-        """Generate explanation for a single file"""
-        if not self.gemini_available and not self.ollama_available:
+        """Generate explanation for a single file with comprehensive repository context"""
+        if (not self.gemini_service or not self.gemini_service.is_available()) and not self.ollama_available:
             return f"File analysis requires either Gemini API or Ollama to be running. File has {file_info.get('lines', 0)} lines."
         
+        # Build comprehensive context including the entire repository understanding
         context = f"""
-File: {file_path}
-Extension: {file_info.get('extension', 'unknown')}
-Lines: {file_info.get('lines', 0)}
+REPOSITORY CONTEXT:
+===================
+Target File: {file_path}
+File Extension: {file_info.get('extension', 'unknown')}
+File Size: {file_info.get('lines', 0)} lines
 
-Content Preview:
-{file_info.get('content_preview', '')[:1500]}
+CURRENT FILE CONTENT:
+=====================
+{file_info.get('content_preview', '')[:2000]}
 
-Imports: {', '.join(file_info.get('imports', [])[:5])}
-Functions: {', '.join(file_info.get('functions', [])[:5])}
-Classes: {', '.join(file_info.get('classes', [])[:5])}
+CURRENT FILE STRUCTURE:
+=======================
+Imports: {', '.join(file_info.get('imports', [])[:10])}
+Functions: {', '.join(file_info.get('functions', [])[:10])}
+Classes: {', '.join(file_info.get('classes', [])[:8])}
+
+REPOSITORY ARCHITECTURE CONTEXT:
+=================================
+Technologies Detected: {', '.join(getattr(self, '_current_technologies', []))}
+Total Repository Files: {getattr(self, '_total_files_count', 'Unknown')}
+Key Repository Files: {', '.join(getattr(self, '_key_files', [])[:5])}
+
+PROJECT TYPE INDICATORS:
+========================
+- Has ML/AI patterns: {self._detect_ml_patterns(file_info)}
+- Has web framework patterns: {self._detect_web_patterns(file_info)}  
+- Has data processing patterns: {self._detect_data_patterns(file_info)}
+- Has CLI application patterns: {self._detect_cli_patterns(file_info)}
+
+CROSS-FILE RELATIONSHIPS:
+=========================
+Files that import this: {self._find_files_importing(file_path)}
+Files this imports from: {', '.join(file_info.get('imports', [])[:8])}
+Similar files in project: {self._find_similar_files(file_path, file_info)}
+
+ARCHITECTURAL PATTERNS DETECTED:
+================================
+{self._detect_architectural_patterns_for_file(file_path, file_info)}
 """
         
         prompt = f"""
-Analyze this file in detail.
+You are an expert code analyst with deep understanding of software architecture and design patterns. 
+Analyze this file within its complete repository context.
 
 {context}
 
-Provide a comprehensive explanation (at least 5-7 sentences, 200-400 words) covering:
-1. What this file does overall and its role in the project (e.g., is it a core model, utility, or config?).
-2. Key functions/classes: For each (up to 5), describe what it does, its parameters, return values, how it works (with pseudocode/examples), and edge cases (e.g., what if input is empty?).
-3. Interactions: How it uses imports or is used by other files.
-4. Strengths/weaknesses: Any best practices or potential issues.
-Use clear, descriptive language with examples where helpful.
+Provide a comprehensive explanation (5-7 detailed sentences, 300-500 words) covering:
+
+1. **Purpose & Role**: What this file does and its specific role in the project architecture. Consider the project type (ML, web app, CLI, etc.) and explain how this file fits into that domain.
+
+2. **Key Components**: For each major function/class (up to 5), explain:
+   - What it does and why it exists
+   - Input parameters and expected outputs  
+   - How it works internally (algorithm/logic)
+   - Edge cases it handles or should handle
+   - How it relates to other components
+
+3. **Architectural Relationships**: 
+   - How this file interacts with other parts of the system
+   - What design patterns are used (MVC, Factory, Observer, etc.)
+   - Dependencies and what depends on this file
+
+4. **Code Quality & Design**:
+   - Well-implemented aspects and best practices used
+   - Potential improvements or concerns
+   - How it follows or violates project conventions
+
+5. **Domain-Specific Insights**: 
+   - If ML: explain the model/data flow aspects
+   - If web: explain request/response handling
+   - If CLI: explain command processing
+   - If data: explain processing pipeline role
+
+Use specific examples from the code when helpful. Focus on understanding the INTENT and CONTEXT, not just describing syntax.
 """
         
         try:
             messages = [
-                {"role": "system", "content": "You are a detailed code analyst explaining files thoroughly."},
+                {"role": "system", "content": "You are a senior software architect and code analyst who understands both code structure and business context."},
                 {"role": "user", "content": prompt}
             ]
             
@@ -1157,6 +1518,113 @@ Use clear, descriptive language with examples where helpful.
             
         except Exception as e:
             return f"File analysis failed: {str(e)}"
+    
+    def _detect_ml_patterns(self, file_info: Dict[str, Any]) -> bool:
+        """Detect if file contains ML/AI patterns"""
+        content = file_info.get('content_preview', '').lower()
+        imports = ' '.join(file_info.get('imports', [])).lower()
+        functions = ' '.join(file_info.get('functions', [])).lower()
+        
+        ml_indicators = ['torch', 'tensorflow', 'sklearn', 'model', 'train', 'predict', 'neural', 'gradient', 'loss', 'optimizer', 'dataset', 'embedding']
+        return any(indicator in content + imports + functions for indicator in ml_indicators)
+    
+    def _detect_web_patterns(self, file_info: Dict[str, Any]) -> bool:
+        """Detect if file contains web framework patterns"""
+        content = file_info.get('content_preview', '').lower()
+        imports = ' '.join(file_info.get('imports', [])).lower()
+        
+        web_indicators = ['flask', 'django', 'fastapi', 'streamlit', 'request', 'response', 'route', 'endpoint', 'api', 'http']
+        return any(indicator in content + imports for indicator in web_indicators)
+    
+    def _detect_data_patterns(self, file_info: Dict[str, Any]) -> bool:
+        """Detect if file contains data processing patterns"""
+        content = file_info.get('content_preview', '').lower()
+        imports = ' '.join(file_info.get('imports', [])).lower()
+        functions = ' '.join(file_info.get('functions', [])).lower()
+        
+        data_indicators = ['pandas', 'numpy', 'csv', 'json', 'dataframe', 'process', 'transform', 'parse', 'load', 'save']
+        return any(indicator in content + imports + functions for indicator in data_indicators)
+    
+    def _detect_cli_patterns(self, file_info: Dict[str, Any]) -> bool:
+        """Detect if file contains CLI application patterns"""
+        content = file_info.get('content_preview', '').lower()
+        imports = ' '.join(file_info.get('imports', [])).lower()
+        
+        cli_indicators = ['argparse', 'click', 'main', 'argv', 'command', 'parser', 'args']
+        return any(indicator in content + imports for indicator in cli_indicators)
+    
+    def _find_files_importing(self, target_file: str) -> str:
+        """Find other files that import the target file"""
+        if not hasattr(self, '_current_detailed_files'):
+            return "Unknown"
+        
+        importing_files = []
+        target_module = Path(target_file).stem
+        
+        for file_path, file_info in self._current_detailed_files.items():
+            imports = file_info.get('imports', [])
+            if any(target_module in imp for imp in imports):
+                importing_files.append(Path(file_path).name)
+        
+        return ', '.join(importing_files[:5]) if importing_files else "None detected"
+    
+    def _find_similar_files(self, target_file: str, file_info: Dict[str, Any]) -> str:
+        """Find files with similar patterns or purposes"""
+        if not hasattr(self, '_current_detailed_files'):
+            return "Unknown"
+        
+        similar_files = []
+        target_functions = set(file_info.get('functions', []))
+        target_imports = set(file_info.get('imports', []))
+        
+        for file_path, other_info in self._current_detailed_files.items():
+            if file_path == target_file:
+                continue
+                
+            other_functions = set(other_info.get('functions', []))
+            other_imports = set(other_info.get('imports', []))
+            
+            # Calculate similarity based on shared imports and function patterns
+            import_similarity = len(target_imports & other_imports) / max(len(target_imports), 1)
+            function_similarity = len(target_functions & other_functions) / max(len(target_functions), 1)
+            
+            if import_similarity > 0.3 or function_similarity > 0.2:
+                similar_files.append(Path(file_path).name)
+        
+        return ', '.join(similar_files[:4]) if similar_files else "None detected"
+    
+    def _detect_architectural_patterns_for_file(self, file_path: str, file_info: Dict[str, Any]) -> str:
+        """Detect architectural patterns relevant to this specific file"""
+        patterns = []
+        
+        file_name = Path(file_path).name.lower()
+        content = file_info.get('content_preview', '').lower()
+        functions = file_info.get('functions', [])
+        classes = file_info.get('classes', [])
+        
+        # Pattern detection based on file characteristics
+        if 'model' in file_name or any('model' in cls.lower() for cls in classes):
+            patterns.append("Data Model / Domain Model pattern")
+        
+        if 'controller' in file_name or 'handler' in file_name:
+            patterns.append("Controller / Handler pattern")
+        
+        if 'view' in file_name or 'template' in file_name:
+            patterns.append("View / Presentation pattern")
+        
+        if 'service' in file_name or any('service' in func.lower() for func in functions):
+            patterns.append("Service Layer pattern")
+        
+        if 'factory' in content or any('create' in func.lower() for func in functions):
+            patterns.append("Factory / Builder pattern")
+        
+        if 'config' in file_name or 'settings' in file_name:
+            patterns.append("Configuration pattern")
+        
+        if 'util' in file_name or 'helper' in file_name:
+            patterns.append("Utility / Helper pattern")
+        
+        return '; '.join(patterns) if patterns else "No specific patterns detected"
     
     def _prioritize_files(self, detailed_files: Dict[str, Any]) -> List[Tuple[str, Dict[str, Any]]]:
         """Prioritize files for analysis based on importance"""
@@ -1206,7 +1674,7 @@ Use clear, descriptive language with examples where helpful.
     
     async def _generate_file_explanations(self, detailed_files: Dict[str, Any]) -> Dict[str, str]:
         """Generate explanations with intelligent prioritization"""
-        if not self.gemini_available and not self.ollama_available:
+        if (not self.gemini_service or not self.gemini_service.is_available()) and not self.ollama_available:
             return {}
         
         # Prioritize files
@@ -1311,50 +1779,106 @@ Use clear, descriptive language with examples where helpful.
         return explanations
     
     async def _generate_overall_insights(self, analysis: Dict[str, Any]) -> str:
-        """Generate overall insights about the repository including quality assessment"""
-        if not self.gemini_available and not self.ollama_available:
+        """Generate overall insights about the repository with comprehensive contextual analysis"""
+        if (not self.gemini_service or not self.gemini_service.is_available()) and not self.ollama_available:
             return "Overall analysis requires either Gemini API or Ollama to be running."
         
         file_structure = analysis['file_structure']
         quality_metrics = analysis.get('quality_metrics', {})
+        detailed_files = analysis.get('detailed_files', {})
         
-        # Build context including quality metrics
+        # Build comprehensive repository intelligence
+        repo_intelligence = self._build_repository_intelligence(detailed_files, analysis)
+        
+        # Build comprehensive context
         context = f"""
-Repository Analysis Results:
+REPOSITORY COMPREHENSIVE ANALYSIS:
+==================================
 
-FILE STRUCTURE:
+QUANTITATIVE METRICS:
+----------------------
 - Total files: {file_structure['total_files']}
 - Total lines of code: {file_structure['total_lines']}
-- File types: {', '.join([f"{ext}({count})" for ext, count in file_structure['file_types'].items()])}
+- File type distribution: {', '.join([f"{ext}({count})" for ext, count in file_structure['file_types'].items()])}
+- Technologies detected: {', '.join(analysis['technologies']) if analysis['technologies'] else 'None detected'}
+- Key entry point files: {', '.join(analysis['key_files']) if analysis['key_files'] else 'None detected'}
 
-TECHNOLOGIES:
-{', '.join(analysis['technologies']) if analysis['technologies'] else 'None detected'}
-
-KEY FILES:
-{', '.join(analysis['key_files']) if analysis['key_files'] else 'None detected'}
-
-CODE QUALITY METRICS:
+CODE QUALITY INTELLIGENCE:
+---------------------------
 - Average complexity: {quality_metrics.get('complexity', {}).get('average_complexity', 'N/A')}
 - Code duplication: {quality_metrics.get('duplication', {}).get('duplication_percentage', 'N/A')}% 
 - Comment ratio: {quality_metrics.get('comment_ratio', 'N/A')}%
 - Quality score: {quality_metrics.get('overall_score', {}).get('score', 'N/A')}/100 (Grade: {quality_metrics.get('overall_score', {}).get('grade', 'N/A')})
+
+ARCHITECTURAL INTELLIGENCE:
+----------------------------
+Project Type Indicators:
+{repo_intelligence['project_type_analysis']}
+
+Detected Architecture Patterns:
+{repo_intelligence['architecture_patterns']}
+
+Component Interaction Patterns:
+{repo_intelligence['interaction_patterns']}
+
+CODEBASE INTELLIGENCE:
+----------------------
+Domain-Specific Patterns:
+{repo_intelligence['domain_patterns']}
+
+File Purpose Distribution:
+{repo_intelligence['file_purposes']}
+
+Dependency Relationship Analysis:
+{repo_intelligence['dependency_analysis']}
+
+COMPLEXITY & MAINTAINABILITY INTELLIGENCE:
+-------------------------------------------
+{repo_intelligence['complexity_insights']}
+
+TECHNOLOGY STACK INTELLIGENCE:
+-------------------------------
+{repo_intelligence['tech_stack_analysis']}
 """
         
         prompt = f"""
-Based on this repository analysis including code quality metrics, provide a comprehensive assessment.
+You are a senior software architect and technical lead conducting a comprehensive repository assessment. 
+Based on the detailed analysis below, provide strategic insights about this codebase.
 
 {context}
 
-Please provide in MARKDOWN format:
-1. **Overall Assessment** - What type of project is this (e.g., ML transformer training)? Scope, key goals, and tech stack details.
-2. **Code Quality Observations** - Analyze organization, quality metrics (e.g., why low duplication?), strengths (e.g., modular design), and weaknesses (e.g., missing tests). Include examples.
-3. **Key Recommendations** - 3-5 specific improvements (e.g., add unit tests for models). Explain WHY each helps.
-Be insightful, reference specific files/metrics, and aim for 300-500 words.
+Provide a comprehensive assessment in MARKDOWN format with the following structure:
+
+## **Project Identity & Purpose**
+Analyze what type of project this is based on the patterns, technologies, and file structures detected. Don't guess - use the actual evidence from the codebase. Explain the project's scope, primary goals, and target domain.
+
+## **Architectural Assessment**
+Evaluate the architectural approach based on detected patterns, file organization, and component relationships. Comment on:
+- How well the architecture fits the project's purpose
+- Strengths in the current design approach
+- Any architectural debt or inconsistencies observed
+
+## **Code Quality & Maintainability**
+Analyze the quality metrics in context:
+- What the quality scores reveal about development practices
+- How complexity/duplication/comments affect maintainability  
+- Evidence of good or problematic coding practices
+- How the quality supports or hinders the project goals
+
+## **Strategic Recommendations**
+Provide 3-5 specific, actionable recommendations that would have the highest impact:
+- Technical debt to address
+- Architectural improvements to consider
+- Quality practices to implement
+- Strategic enhancements for the project type
+
+Focus on insights that require understanding the ENTIRE codebase context, not just individual files. 
+Reference specific patterns, files, and metrics from the analysis. Aim for 400-600 words of strategic value.
 """
         
         try:
             messages = [
-                {"role": "system", "content": "You are a senior ML architect analyzing a codebase including quality metrics."},
+                {"role": "system", "content": "You are a senior software architect providing strategic codebase assessment based on comprehensive analysis."},
                 {"role": "user", "content": prompt}
             ]
             
@@ -1363,6 +1887,122 @@ Be insightful, reference specific files/metrics, and aim for 300-500 words.
             
         except Exception as e:
             return f"Analysis failed: {str(e)}"
+    
+    def _build_repository_intelligence(self, detailed_files: Dict[str, Any], analysis: Dict[str, Any]) -> Dict[str, Any]:
+        """Build comprehensive repository intelligence by analyzing patterns across all files"""
+        intelligence = {
+            'project_type_analysis': '',
+            'architecture_patterns': '',
+            'interaction_patterns': '',
+            'domain_patterns': '',
+            'file_purposes': '',
+            'dependency_analysis': '',
+            'complexity_insights': '',
+            'tech_stack_analysis': ''
+        }
+        
+        # Analyze project type indicators
+        ml_files = sum(1 for f in detailed_files.values() if self._detect_ml_patterns(f))
+        web_files = sum(1 for f in detailed_files.values() if self._detect_web_patterns(f))
+        data_files = sum(1 for f in detailed_files.values() if self._detect_data_patterns(f))
+        cli_files = sum(1 for f in detailed_files.values() if self._detect_cli_patterns(f))
+        
+        total_files = len(detailed_files)
+        
+        project_indicators = []
+        if ml_files > 0:
+            project_indicators.append(f"Machine Learning ({ml_files}/{total_files} files with ML patterns)")
+        if web_files > 0:
+            project_indicators.append(f"Web Application ({web_files}/{total_files} files with web patterns)")
+        if data_files > 0:
+            project_indicators.append(f"Data Processing ({data_files}/{total_files} files with data patterns)")
+        if cli_files > 0:
+            project_indicators.append(f"CLI Application ({cli_files}/{total_files} files with CLI patterns)")
+        
+        intelligence['project_type_analysis'] = '; '.join(project_indicators) if project_indicators else "General Purpose Application"
+        
+        # Analyze architecture patterns
+        architecture_patterns = []
+        file_names = [Path(f).name.lower() for f in detailed_files.keys()]
+        
+        if any('model' in name for name in file_names):
+            architecture_patterns.append("Model Layer Pattern")
+        if any('view' in name or 'template' in name for name in file_names):
+            architecture_patterns.append("View Layer Pattern")
+        if any('controller' in name or 'handler' in name for name in file_names):
+            architecture_patterns.append("Controller/Handler Pattern")
+        if any('service' in name for name in file_names):
+            architecture_patterns.append("Service Layer Pattern")
+        if any('config' in name or 'settings' in name for name in file_names):
+            architecture_patterns.append("Configuration Pattern")
+        
+        intelligence['architecture_patterns'] = '; '.join(architecture_patterns) if architecture_patterns else "No clear architectural patterns detected"
+        
+        # Analyze interaction patterns
+        import_counts = {}
+        for file_info in detailed_files.values():
+            for imp in file_info.get('imports', []):
+                import_counts[imp] = import_counts.get(imp, 0) + 1
+        
+        common_imports = sorted(import_counts.items(), key=lambda x: x[1], reverse=True)[:5]
+        interaction_patterns = [f"{imp} (used in {count} files)" for imp, count in common_imports]
+        intelligence['interaction_patterns'] = '; '.join(interaction_patterns) if interaction_patterns else "Limited cross-file dependencies"
+        
+        # Analyze domain patterns
+        domain_patterns = []
+        all_functions = []
+        for file_info in detailed_files.values():
+            all_functions.extend(file_info.get('functions', []))
+        
+        function_text = ' '.join(all_functions).lower()
+        
+        if 'train' in function_text or 'model' in function_text:
+            domain_patterns.append("Machine Learning Training/Inference")
+        if 'api' in function_text or 'endpoint' in function_text:
+            domain_patterns.append("API/Web Service")
+        if 'process' in function_text or 'transform' in function_text:
+            domain_patterns.append("Data Processing Pipeline")
+        if 'parse' in function_text or 'load' in function_text:
+            domain_patterns.append("Data Input/Output")
+        
+        intelligence['domain_patterns'] = '; '.join(domain_patterns) if domain_patterns else "General utility functions"
+        
+        # Analyze file purposes
+        purpose_distribution = {}
+        for file_path in detailed_files.keys():
+            file_name = Path(file_path).name.lower()
+            if 'main' in file_name or 'app' in file_name:
+                purpose_distribution['Entry Points'] = purpose_distribution.get('Entry Points', 0) + 1
+            elif 'test' in file_name:
+                purpose_distribution['Tests'] = purpose_distribution.get('Tests', 0) + 1
+            elif 'config' in file_name or 'settings' in file_name:
+                purpose_distribution['Configuration'] = purpose_distribution.get('Configuration', 0) + 1
+            elif 'util' in file_name or 'helper' in file_name:
+                purpose_distribution['Utilities'] = purpose_distribution.get('Utilities', 0) + 1
+            else:
+                purpose_distribution['Core Logic'] = purpose_distribution.get('Core Logic', 0) + 1
+        
+        intelligence['file_purposes'] = '; '.join([f"{purpose}: {count}" for purpose, count in purpose_distribution.items()])
+        
+        # Analyze dependencies
+        total_imports = sum(len(f.get('imports', [])) for f in detailed_files.values())
+        avg_imports = total_imports / len(detailed_files) if detailed_files else 0
+        intelligence['dependency_analysis'] = f"Average {avg_imports:.1f} imports per file, indicating {'high' if avg_imports > 5 else 'moderate' if avg_imports > 2 else 'low'} coupling"
+        
+        # Complexity insights
+        total_functions = sum(len(f.get('functions', [])) for f in detailed_files.values())
+        avg_functions = total_functions / len(detailed_files) if detailed_files else 0
+        intelligence['complexity_insights'] = f"Average {avg_functions:.1f} functions per file, suggesting {'complex' if avg_functions > 10 else 'moderate' if avg_functions > 5 else 'simple'} file organization"
+        
+        # Tech stack analysis
+        technologies = analysis.get('technologies', [])
+        if technologies:
+            primary_tech = technologies[0] if technologies else "Unknown"
+            intelligence['tech_stack_analysis'] = f"Primary: {primary_tech}, Supporting: {', '.join(technologies[1:4])}"
+        else:
+            intelligence['tech_stack_analysis'] = "No specific technology stack detected"
+        
+        return intelligence
     
     async def analyze_repository(self, repo_url: str) -> Dict[str, Any]:
         """Analyze a GitHub repository with enhanced quality metrics and proper error handling"""
@@ -1390,6 +2030,7 @@ Be insightful, reference specific files/metrics, and aim for 300-500 words.
             file_explanations = await self._generate_file_explanations(analysis.get("detailed_files", {}))
             analysis["file_explanations"] = file_explanations
 
+
             # Generate overall insights
             insights = await self._generate_overall_insights(analysis)
 
@@ -1413,7 +2054,7 @@ Be insightful, reference specific files/metrics, and aim for 300-500 words.
                 try:
                     shutil.rmtree(repo_path, ignore_errors=True)
                 except Exception as cleanup_error:
-                    st.warning(f"⚠️ Cleanup warning: {str(cleanup_error)}")
+                    st.warning(f"Cleanup warning: {str(cleanup_error)}")
     
     def analyze_repository_progressive(self, repo_url: str):
         """Analyze repository with progressive loading and real-time updates"""
@@ -1430,17 +2071,17 @@ Be insightful, reference specific files/metrics, and aim for 300-500 words.
         
         try:
             # Check cache first
-            status_text.text("🔍 Checking cache...")
+            status_text.text("Checking cache...")
             progress_bar.progress(5)
             
             cached_result = self.cache.get_cached_analysis(repo_url)
             if cached_result:
-                status_text.text("✅ Found cached analysis!")
+                status_text.text("Found cached analysis!")
                 progress_bar.progress(100)
                 return cached_result
             
             # Step 1: Parse URL and Clone repository (20% progress)
-            status_text.text("🔄 Cloning repository...")
+            status_text.text("Cloning repository...")
             progress_bar.progress(20)
             
             repo_info = self._parse_repo_url(repo_url)
@@ -1451,14 +2092,14 @@ Be insightful, reference specific files/metrics, and aim for 300-500 words.
             repo_path = self._clone_repository(repo_info)
             
             # Step 2: Basic analysis (40% progress)
-            status_text.text("📊 Analyzing file structure...")
+            status_text.text("Analyzing file structure...")
             progress_bar.progress(40)
             
             analysis = self._analyze_code_structure(repo_path)
             
             # Show basic info immediately
             with basic_info_placeholder.container():
-                st.subheader("📁 Repository Overview")
+                st.subheader("Repository Overview")
                 col1, col2, col3 = st.columns(3)
                 with col1:
                     st.metric("Total Files", analysis["file_structure"]["total_files"])
@@ -1471,11 +2112,11 @@ Be insightful, reference specific files/metrics, and aim for 300-500 words.
                     st.write("**Technologies detected:**", ", ".join(analysis["technologies"]))
             
             # Step 3: File structure display (50% progress)
-            status_text.text("📄 Displaying file structure...")
+            status_text.text("Displaying file structure...")
             progress_bar.progress(50)
             
             with file_structure_placeholder.container():
-                st.subheader("🌳 File Structure")
+                st.subheader("File Structure")
                 if analysis["file_structure"]["file_types"]:
                     # Create a simple visualization of file types
                     file_types_df = pd.DataFrame(
@@ -1485,7 +2126,7 @@ Be insightful, reference specific files/metrics, and aim for 300-500 words.
                     st.bar_chart(file_types_df.set_index('Extension'))
             
             # Step 4: File explanations (70% progress)
-            status_text.text("🤖 Generating file explanations...")
+            status_text.text("Generating file explanations...")
             progress_bar.progress(70)
             
             file_explanations = asyncio.run(self._generate_file_explanations(analysis["detailed_files"]))
@@ -1493,20 +2134,20 @@ Be insightful, reference specific files/metrics, and aim for 300-500 words.
             
             # Show file explanations immediately
             with file_explanations_placeholder.container():
-                st.subheader("📄 Key File Explanations")
+                st.subheader("Key File Explanations")
                 for file_path, explanation in file_explanations.items():
-                    with st.expander(f"📄 {file_path}"):
+                    with st.expander(f"File: {file_path}"):
                         st.write(explanation)
             
             # Step 5: Overall insights (90% progress)
-            status_text.text("💡 Generating insights...")
+            status_text.text("Generating insights...")
             progress_bar.progress(90)
             
             insights = asyncio.run(self._generate_overall_insights(analysis))
             
             # Show insights immediately
             with insights_placeholder.container():
-                st.subheader("🤖 AI Insights")
+                st.subheader("AI Insights")
                 st.write(insights)
             
             # Step 6: Save to cache and complete (100% progress)
@@ -1520,7 +2161,7 @@ Be insightful, reference specific files/metrics, and aim for 300-500 words.
             self.cache.save_analysis(repo_url, result)
             
             progress_bar.progress(100)
-            status_text.text("✅ Analysis complete!")
+            status_text.text("Analysis complete!")
             
             return result
             
@@ -1534,149 +2175,66 @@ Be insightful, reference specific files/metrics, and aim for 300-500 words.
     
     def get_status(self) -> Dict[str, Any]:
         """Get current analyzer status"""
+        gemini_available = self.gemini_service and self.gemini_service.is_available()
         return {
-            "gemini_available": self.gemini_available,
+            "gemini_available": gemini_available,
             "ollama_available": self.ollama_available,
             "api_requests_made": self.api_requests_made,
-            "api_limit_reached": self.api_limit_reached,
+            "api_limit_reached": not gemini_available and self.gemini_service is not None,
             "recommended_approach": self._get_recommended_approach(),
-            "has_any_llm": self.gemini_available or self.ollama_available
+            "has_any_llm": gemini_available or self.ollama_available,
+            "gemini_service_status": self.gemini_service.get_service_name() if self.gemini_service else "Not initialized"
         }
     
     def _get_recommended_approach(self) -> str:
         """Get recommendation based on current status"""
-        if self.api_limit_reached:
+        gemini_available = self.gemini_service and self.gemini_service.is_available()
+        if not gemini_available and self.gemini_service is not None:
             return "Local Ollama (API quota reached)"
-        elif self.gemini_available:
+        elif gemini_available:
             return "Gemini API (Fast)"
         elif self.ollama_available:
             return "Local Ollama (Slower)"
         else:
             return "Neither available"
 
-# Main Streamlit App (Enhanced with Quality Metrics UI)
-st.markdown('<h1 class="main-title">🚀 Hybrid LLM Repository Analyzer</h1>', unsafe_allow_html=True)
-st.markdown("**Comprehensive GitHub repository analysis with quality metrics and interactive visual diagrams - powered by Gemini API with Ollama fallback!**")
 
-# Initialize analyzer with hybrid approach
+# Initialize analyzer with automatic configuration
 @st.cache_resource
-def get_analyzer(gemini_api_key: str = None):
-    return RepositoryAnalyzer(gemini_api_key=gemini_api_key)
+def get_analyzer():
+    # Auto-detect Gemini API keys from secrets
+    gemini_api_keys = []
+    try:
+        for i in range(1, 5):
+            key_name = f"gemini_api_key_{i}"
+            if hasattr(st.secrets, key_name):
+                api_key = getattr(st.secrets, key_name)
+                if api_key:
+                    gemini_api_keys.append(api_key)
+    except:
+        pass
+    
+    return RepositoryAnalyzer(gemini_api_keys=gemini_api_keys if gemini_api_keys else None)
 
-# Get API key from sidebar
-with st.sidebar:
-    st.header("🚀 Hybrid Configuration")
-    
-    gemini_api_key = st.text_input(
-        "🔑 Gemini API Key (Optional)",
-        type="password",
-        help="For fastest analysis. Leave empty to use local Ollama only.",
-        placeholder="Enter your Gemini API key here..."
-    )
-    
-    # Get analyzer with API key
-    if gemini_api_key:
-        analyzer = get_analyzer(gemini_api_key)
-    else:
-        analyzer = get_analyzer()
-    
-    # Show status
-    status = analyzer.get_status()
-    
-    st.subheader("📊 System Status")
-    
-    if status["gemini_available"]:
-        st.success("✅ Gemini API ready (Fast)")
-    else:
-        st.info("⚪ Gemini API not configured")
-    
-    if status["ollama_available"]:
-        st.success("✅ Ollama ready (Local)")
-    else:
-        st.error("❌ Ollama not available")
-    
-    if not status["has_any_llm"]:
-        st.error("❌ No LLM available for analysis")
-    else:
-        st.info(f"**Current approach:** {status['recommended_approach']}")
-    
-    # Show API usage if applicable
-    if status["api_requests_made"] > 0:
-        st.metric("API Requests Used", status["api_requests_made"])
-    
-    # Show performance tips
-    st.markdown("### ⚡ Performance Tips:")
-    st.markdown("""
-    **For Fastest Analysis:**
-    - Use Gemini API key
-    - Analyze smaller repositories first
-    
-    **For Ollama Optimization:**
-    - Use `llama3.2:1b` for speed
-    - Ensure Ollama is running
-    - Close other applications
+analyzer = get_analyzer()
+
+# How to Use section
+if st.button("How to Use"):
+    st.info("""
+    **Simple Steps:**
+    1. Paste any GitHub repository URL below
+    2. Click Analyze
+    3. View results in the tabs that appear
     """)
 
-    # Mermaid status
-    if MERMAID_AVAILABLE and MERMAID_FUNCTIONAL:
-        st.markdown('<div class="status-success">✅ Mermaid diagrams enabled</div>', unsafe_allow_html=True)
-        
-        # Test Mermaid rendering
-        if st.button("🧪 Test Mermaid"):
-            st.markdown("**Mermaid Test:**")
-            try:
-                test_diagram = "graph TD\n    A[Test] --> B[Working!]"
-                st_mermaid.st_mermaid(test_diagram, height=150, key="sidebar_test")
-                st.success("Mermaid is working!")
-            except Exception as e:
-                st.error(f"Mermaid test failed: {str(e)}")
-    elif MERMAID_AVAILABLE:
-        st.markdown('<div class="status-error">⚠️ Mermaid installed but not functional</div>', unsafe_allow_html=True)
-        st.markdown("""
-        **Try fixing:**
-        1. Restart Streamlit
-        2. `pip uninstall streamlit-mermaid && pip install streamlit-mermaid`
-        """)
-    else:
-        st.markdown('<div class="status-error">❌ Mermaid not available</div>', unsafe_allow_html=True)
-        st.markdown("""
-        **To enable interactive diagrams:**
-        1. `pip install streamlit-mermaid`
-        2. Restart the app
-        """)
-        st.info("You can still view diagram code and use Mermaid Live Editor")
-    
-    
-    st.header("🎯 Analysis Features")
-    st.markdown("""
-    **🏆 Code Quality Analysis:**
-    - 🧮 Complexity metrics
-    - 🔄 Duplication detection  
-    - 📏 Function size analysis
-    - 💬 Comment ratio tracking
-    - 🏆 Overall quality score
-    
-    **🎨 Visual Code Analysis:**
-    - 📊 System flow diagrams
-    - 🔄 Component interactions
-    - 📈 Data flow visualization
-    - 🏗️ Architecture overview
-    """)
+st.markdown("---")
+repo_url = st.text_input("Repository URL", placeholder="https://github.com/username/repository")
 
-# Main interface (unchanged)
-repo_url = st.text_input(
-    "🔗 GitHub Repository URL",
-    placeholder="https://github.com/karpathy/micrograd or karpathy/micrograd",
-    help="Enter a GitHub repository URL or owner/repo format"
-)
-
-detail_level = st.radio("Explanation Detail", ["Concise", "Detailed"], index=1)
-
-col1, col2 = st.columns([1, 4])
+col1, col2 = st.columns([3, 1])
 with col1:
-    analyze_button = st.button("🧠 Analyze Repository", type="primary")
+    analyze_button = st.button("Analyze", type="primary", use_container_width=True)
 with col2:
-    clear_button = st.button("🗑️ Clear Results")
+    clear_button = st.button("Clear", use_container_width=True)
 
 # Clear results if requested
 if clear_button:
@@ -1688,16 +2246,9 @@ if clear_button:
 if analyze_button and repo_url:
     status = analyzer.get_status()
     if not status["has_any_llm"]:
-        st.error("❌ No LLM available for analysis. Please configure Gemini API key or install Ollama.")
+        st.error("No AI service available.")
         st.stop()
-    elif not status["gemini_available"] and not status["ollama_available"]:
-        st.warning("⚠️ No LLM available. Analysis will work but file explanations will be limited.")
-    elif status["gemini_available"] and not status["api_limit_reached"]:
-        st.info("🚀 Using Gemini API for fast analysis...")
-    elif status["ollama_available"]:
-        st.info("🤖 Using local Ollama for analysis...")
     
-    # Use progressive loading instead of spinner
     start_time = time.time()
     
     try:
@@ -1708,89 +2259,43 @@ if analyze_button and repo_url:
         if result and result.get('success'):
             st.session_state['analysis_results'] = result
             st.session_state['analysis_time'] = analysis_time
-            st.success(f"🎉 Analysis completed in {analysis_time:.1f} seconds!")
+            st.session_state['current_repo_url'] = repo_url
+            st.success(f"Completed in {analysis_time:.1f}s")
         else:
-            st.error(f"Analysis failed: {result.get('error', 'Unknown error')}")
+            st.error(f"Failed: {result.get('error', 'Unknown error')}")
             
     except Exception as e:
-        st.error(f"Analysis failed: {str(e)}")
+        st.error(f"Failed: {str(e)}")
 
-# Display results (ENHANCED WITH QUALITY METRICS)
+# Display results
 if 'analysis_results' in st.session_state:
     result = st.session_state['analysis_results']
     
     if result.get('success', False):
-        analysis_time = st.session_state.get('analysis_time', 0)
-        
-        st.markdown(f'''
-        <div class="status-success">
-        ✅ Analysis completed in {analysis_time:.1f} seconds<br/>
-        <span class="cost-free">💰 Cost: $0.00 (FREE!)</span>
-        </div>
-        ''', unsafe_allow_html=True)
-        
-        # Repository info
-        st.header(f"📊 Analysis Results: {result['repository']}")
+        # Repository name
+        st.subheader(result['repository'])
         
         analysis = result['analysis']
         quality_metrics = analysis.get('quality_metrics', {})
         
-        # Enhanced metrics overview WITH QUALITY SCORE
+        # Simple metrics
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            st.markdown(f'''
-            <div class="metric-box">
-            <h3>{analysis["file_structure"]["total_files"]}</h3>
-            <p>Total Files</p>
-            </div>
-            ''', unsafe_allow_html=True)
-        
+            st.metric("Files", analysis["file_structure"]["total_files"])
         with col2:
-            st.markdown(f'''
-            <div class="metric-box">
-            <h3>{analysis["file_structure"]["total_lines"]:,}</h3>
-            <p>Lines of Code</p>
-            </div>
-            ''', unsafe_allow_html=True)
-        
+            st.metric("Lines", f"{analysis['file_structure']['total_lines']:,}")
         with col3:
-            st.markdown(f'''
-            <div class="metric-box">
-            <h3>{len(analysis["technologies"])}</h3>
-            <p>Technologies</p>
-            </div>
-            ''', unsafe_allow_html=True)
-        
-        # NEW: Quality Score Display
+            st.metric("Technologies", len(analysis["technologies"]))
         with col4:
             overall_score = quality_metrics.get('overall_score', {})
             score = overall_score.get('score', 0)
-            grade = overall_score.get('grade', 'N/A')
-            grade_class = f"quality-score-{grade.lower()}" if grade != 'N/A' else "metric-box"
-            
-            st.markdown(f'''
-            <div class="{grade_class}">
-            <h3>{score}/100</h3>
-            <p>Quality Score ({grade})</p>
-            </div>
-            ''', unsafe_allow_html=True)
+            st.metric("Quality", f"{score}/100")
         
-        # Analysis tabs
-        tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
-            "📁 File Structure", 
-            "📄 File Explanations",
-            "🤖 AI Insights",
-            "🏆 Code Quality",
-            "🎨 Visual Analysis",
-            "📈 Evolution Analysis",
-            "🎓 Code Mentor",
-            "⚡ Performance Prediction"
-        ])
+        # Results tabs
+        tab1, tab2, tab3, tab4 = st.tabs(["Overview", "Files", "Charts", "Chat"])
         
-        # Existing tabs remain the same...
         with tab1:
-            st.subheader("File Type Distribution")
             
             if analysis['file_structure']['file_types']:
                 file_types_df = pd.DataFrame(
@@ -1810,13 +2315,12 @@ if 'analysis_results' in st.session_state:
                 st.dataframe(file_types_df, use_container_width=True)
         
         with tab2:
-            st.subheader("📄 File-by-File Explanations")
             
             file_explanations = analysis.get('file_explanations', {})
             
             if file_explanations:
                 # Search functionality
-                search_term = st.text_input("🔍 Search files:", placeholder="Type to filter files...")
+                search_term = st.text_input("Search files:", placeholder="Type to filter files...")
                 
                 # Filter files
                 filtered_files = {}
@@ -1841,38 +2345,14 @@ if 'analysis_results' in st.session_state:
                         else:
                             doc_files[file_path] = explanation
                     
-                    # Display each category
-                    if code_files:
-                        st.markdown("### 💻 Code Files")
-                        for file_path, explanation in code_files.items():
-                            with st.expander(f"📄 {file_path}"):
-                                st.markdown(explanation)
-                    
-                    if config_files:
-                        st.markdown("### ⚙️ Configuration Files")
-                        for file_path, explanation in config_files.items():
-                            with st.expander(f"🔧 {file_path}"):
-                                st.markdown(explanation)
-                    
-                    if doc_files:
-                        st.markdown("### 📚 Documentation Files")
-                        for file_path, explanation in doc_files.items():
-                            with st.expander(f"📖 {file_path}"):
-                                st.markdown(explanation)
-                
-                # Stats
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("📄 Code Files", len(code_files))
-                with col2:
-                    st.metric("⚙️ Config Files", len(config_files))
-                with col3:
-                    st.metric("📚 Doc Files", len(doc_files))
+                    # Display files
+                    for file_path, explanation in filtered_files.items():
+                        with st.expander(file_path):
+                            st.markdown(explanation)
             else:
                 st.info("File explanations not available. Configure Gemini API key or make sure Ollama is running and re-run the analysis.")
         
         with tab3:
-            st.subheader("AI-Generated Insights")
             
             insights = result.get('insights', '')
             if insights:
@@ -1880,491 +2360,7 @@ if 'analysis_results' in st.session_state:
             else:
                 st.info("AI insights not available. Configure Gemini API key or make sure Ollama is running.")
         
-        # NEW: Code Quality Tab
         with tab4:
-            st.subheader("🏆 Code Quality Analysis")
-            
-            if quality_metrics:
-                # Overall Score Section
-                overall_score = quality_metrics.get('overall_score', {})
-                if overall_score:
-                    col1, col2 = st.columns([1, 2])
-                    
-                    with col1:
-                        score = overall_score.get('score', 0)
-                        grade = overall_score.get('grade', 'N/A')
-                        grade_class = f"quality-score-{grade.lower()}" if grade != 'N/A' else "metric-box"
-                        
-                        st.markdown(f'''
-                        <div class="{grade_class}">
-                        <h2>Overall Quality Score</h2>
-                        <h1>{score}/100 ({grade})</h1>
-                        </div>
-                        ''', unsafe_allow_html=True)
-                    
-                    with col2:
-                        st.markdown("**🎯 Recommendations:**")
-                        recommendations = overall_score.get('recommendations', [])
-                        for rec in recommendations:
-                            st.markdown(f'''
-                            <div class="recommendation-box">
-                            {rec}
-                            </div>
-                            ''', unsafe_allow_html=True)
-                
-                # Detailed Metrics
-                st.markdown("---")
-                
-                # Complexity Analysis
-                complexity_data = quality_metrics.get('complexity', {})
-                if complexity_data.get('functions'):
-                    st.markdown("### 🧮 Complexity Analysis")
-                    
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.metric("Average Complexity", f"{complexity_data.get('average_complexity', 0):.1f}")
-                        st.metric("Files Analyzed", complexity_data.get('total_files_analyzed', 0))
-                    
-                    with col2:
-                        # Complexity distribution chart
-                        functions = complexity_data.get('functions', [])
-                        if functions:
-                            complexity_df = pd.DataFrame(functions)
-                            fig = px.histogram(
-                                complexity_df, 
-                                x='complexity', 
-                                title="Function Complexity Distribution",
-                                nbins=10
-                            )
-                            st.plotly_chart(fig, use_container_width=True)
-                    
-                    # High complexity functions
-                    high_complexity = [f for f in functions if f.get('complexity', 0) > 10]
-                    if high_complexity:
-                        st.markdown("**🚨 High Complexity Functions (>10):**")
-                        for func in high_complexity[:10]:  # Show top 10
-                            st.markdown(f"- `{func['name']}` (complexity: {func['complexity']}, line: {func['line']})")
-                
-                # Duplication Analysis
-                duplication_data = quality_metrics.get('duplication', {})
-                if duplication_data:
-                    st.markdown("### ♻️ Code Duplication Analysis")
-                    
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        st.metric("Duplicate Blocks", duplication_data.get('total_duplicates', 0))
-                    with col2:
-                        st.metric("Duplication %", f"{duplication_data.get('duplication_percentage', 0):.1f}%")
-                    with col3:
-                        duplication_pct = duplication_data.get('duplication_percentage', 0)
-                        if duplication_pct < 5:
-                            status = "✅ Low"
-                        elif duplication_pct < 15:
-                            status = "⚠️ Medium"
-                        else:
-                            status = "🚨 High"
-                        st.metric("Status", status)
-                
-                # Function Size Analysis
-                function_sizes = quality_metrics.get('function_sizes', {})
-                if function_sizes.get('total_functions', 0) > 0:
-                    st.markdown("### 📏 Function Size Analysis")
-                    
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.metric("Average Function Size", f"{function_sizes.get('average_size', 0):.1f} lines")
-                        st.metric("Total Functions", function_sizes.get('total_functions', 0))
-                    
-                    with col2:
-                        # Function size distribution
-                        size_dist = function_sizes.get('size_distribution', {})
-                        if size_dist:
-                            labels = list(size_dist.keys())
-                            values = list(size_dist.values())
-                            
-                            fig = px.pie(
-                                values=values, 
-                                names=labels, 
-                                title="Function Size Distribution"
-                            )
-                            st.plotly_chart(fig, use_container_width=True)
-                
-                # Comment Ratio
-                comment_ratio = quality_metrics.get('comment_ratio', 0)
-                if comment_ratio > 0:
-                    st.markdown("### 💬 Comment Analysis")
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.metric("Comment Ratio", f"{comment_ratio:.1f}%")
-                    with col2:
-                        if comment_ratio < 10:
-                            status = "🚨 Low - Add more comments"
-                        elif comment_ratio < 30:
-                            status = "✅ Good"
-                        else:
-                            status = "⚠️ High - Consider reducing"
-                        st.metric("Status", status)
-            
-            else:
-                st.info("Code quality analysis not available. This feature works best with Python repositories.")
-        
-        # NEW: Enhanced Visual Analysis Tab
-        with tab5:
-            st.subheader("🎨 Intelligent Visual Analysis")
-            
-            visual_data = quality_metrics.get('visual_analysis', {})
-            
-            if visual_data and visual_data.get('codebase_profile', {}):
-                # Display codebase profile
-                codebase_profile = visual_data.get('codebase_profile', {})
-                
-                st.markdown("### 🔍 Codebase Profile")
-                col1, col2, col3, col4 = st.columns(4)
-                
-                with col1:
-                    primary_lang = codebase_profile.get('primary_language', 'Unknown')
-                    st.metric("Primary Language", primary_lang)
-                
-                with col2:
-                    app_type = codebase_profile.get('application_type', 'Unknown')
-                    st.metric("Application Type", app_type)
-                
-                with col3:
-                    complexity = codebase_profile.get('complexity_indicators', {}).get('complexity_level', 'Unknown')
-                    st.metric("Complexity Level", complexity)
-                
-                with col4:
-                    frameworks = codebase_profile.get('detected_frameworks', [])
-                    st.metric("Frameworks Found", len(frameworks))
-                
-                # Display detected frameworks
-                if frameworks:
-                    st.markdown("**🔧 Detected Frameworks:**")
-                    framework_text = ", ".join(frameworks[:8])
-                    st.info(framework_text)
-                
-                # Entry Points Analysis
-                entry_points = visual_data.get('entry_points', [])
-                if entry_points:
-                    st.markdown("### 🎯 Intelligent Entry Point Detection")
-                    
-                    for ep in entry_points:
-                        confidence = ep.get('confidence', 0)
-                        confidence_color = "🟢" if confidence > 0.8 else "🟡" if confidence > 0.6 else "🔴"
-                        
-                        with st.expander(f"{confidence_color} {ep['name']} ({ep['type'].replace('_', ' ').title()})"):
-                            st.markdown(f"**File:** `{ep['file']}`")
-                            st.markdown(f"**Description:** {ep['description']}")
-                            st.markdown(f"**Confidence:** {confidence:.2f}")
-                            st.markdown(f"**Discovery Method:** {ep.get('discovery_method', 'pattern_detection')}")
-                
-                # Execution Flows Analysis
-                execution_flows = visual_data.get('execution_flows', [])
-                if execution_flows:
-                    st.markdown("### 🌊 Adaptive Execution Flow Analysis")
-                    
-                    for i, flow in enumerate(execution_flows, 1):
-                        entry_point = flow['entry_point']
-                        flow_steps = flow['flow_steps']
-                        
-                        with st.expander(f"Flow {i}: {entry_point['name']} ({len(flow_steps)} steps)"):
-                            st.markdown(f"**Application Type:** {app_type}")
-                            st.markdown(f"**Execution Pattern:** {flow.get('execution_pattern', 'Unknown')}")
-                            
-                            if flow.get('discovered_operations'):
-                                st.markdown("**Discovered Operations:**")
-                                for op in flow['discovered_operations'][:5]:
-                                    st.markdown(f"- {op}")
-                            
-                            # Show flow steps
-                            st.markdown("**Execution Steps:**")
-                            for step in flow_steps[:8]:
-                                step_emoji = {
-                                    'initialization': '🚀',
-                                    'dependency_loading': '📦',
-                                    'configuration': '⚙️',
-                                    'operation': '⚡',
-                                    'control_flow': '🔄',
-                                    'entry': '🎯'
-                                }.get(step.get('type'), '▶️')
-                                
-                                st.markdown(f"- {step_emoji} **{step['action']}** ({step.get('category', 'unknown')})")
-                
-                # Component Interactions
-                component_interactions = visual_data.get('component_interactions', [])
-                if component_interactions:
-                    st.markdown("### 🔗 Intelligent Component Analysis")
-                    st.markdown(f"Found {len(component_interactions)} component interactions:")
-                    
-                    # Group by strength
-                    strong_interactions = [i for i in component_interactions if i.get('strength') == 'strong']
-                    medium_interactions = [i for i in component_interactions if i.get('strength') == 'medium']
-                    weak_interactions = [i for i in component_interactions if i.get('strength') == 'weak']
-                    
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        st.metric("Strong Dependencies", len(strong_interactions))
-                    with col2:
-                        st.metric("Medium Dependencies", len(medium_interactions))
-                    with col3:
-                        st.metric("Weak Dependencies", len(weak_interactions))
-                    
-                    # Show top interactions
-                    for interaction in component_interactions[:8]:
-                        strength_emoji = {"strong": "🔴", "medium": "🟡", "weak": "🟢"}.get(interaction.get('strength'), "⚪")
-                        st.markdown(f"{strength_emoji} **{interaction['from_component']}** → **{interaction['to_component']}** ({interaction.get('interaction_type', 'dependency')})")
-                
-                # Data Flow Analysis
-                data_flows = visual_data.get('data_flows', [])
-                if data_flows:
-                    st.markdown("### 📈 Dynamic Data Flow Analysis")
-                    
-                    for flow in data_flows[:5]:
-                        file_name = Path(flow['file']).name
-                        complexity_score = flow.get('complexity', 0)
-                        
-                        with st.expander(f"📄 {file_name} (Complexity: {complexity_score})"):
-                            col1, col2, col3 = st.columns(3)
-                            
-                            with col1:
-                                st.markdown("**📥 Inputs:**")
-                                for inp in flow['inputs']:
-                                    st.markdown(f"- {inp}")
-                            
-                            with col2:
-                                st.markdown("**⚙️ Transformations:**")
-                                for transform in flow['transformations']:
-                                    st.markdown(f"- {transform}")
-                            
-                            with col3:
-                                st.markdown("**📤 Outputs:**")
-                                for output in flow['outputs']:
-                                    st.markdown(f"- {output}")
-                
-                # Architectural Insights
-                arch_insights = visual_data.get('architectural_insights', {})
-                if arch_insights:
-                    st.markdown("### 🏗️ Architectural Pattern Detection")
-                    
-                    arch_style = arch_insights.get('architectural_style', 'Unknown')
-                    st.info(f"**Detected Architecture:** {arch_style}")
-                    
-                    detected_patterns = arch_insights.get('detected_patterns', [])
-                    if detected_patterns:
-                        st.markdown("**🎨 Detected Patterns:**")
-                        for pattern in detected_patterns:
-                            st.markdown(f"- {pattern}")
-                
-                # Visual Diagrams Section
-                st.markdown("### 📊 Adaptive Visual Diagrams")
-                
-                visual_diagrams = visual_data.get('visual_diagrams', {})
-                
-                if visual_diagrams:
-                    for diagram_name, diagram_code in visual_diagrams.items():
-                        if diagram_code and diagram_code.strip():
-                            title = f"{diagram_name.replace('_', ' ').title()}"
-                            description = f"Adaptive diagram showing {diagram_name.replace('_', ' ')}"
-                            
-                            render_mermaid_diagram(diagram_code, title, description, key_suffix=diagram_name)
-                else:
-                    st.info("No visual diagrams generated - this may indicate a very simple codebase structure")
-                
-                # Intelligent Insights
-                intelligent_insights = visual_data.get('intelligent_insights', [])
-                if intelligent_insights:
-                    st.markdown("### 💡 Intelligent Insights")
-                    for insight in intelligent_insights:
-                        st.markdown(f"- {insight}")
-                
-                # Adaptive Recommendations
-                adaptive_recommendations = visual_data.get('adaptive_recommendations', [])
-                if adaptive_recommendations:
-                    st.markdown("### 🎯 Adaptive Recommendations")
-                    for rec in adaptive_recommendations:
-                        st.markdown(f'''
-                        <div class="recommendation-box">
-                        {rec}
-                        </div>
-                        ''', unsafe_allow_html=True)
-                
-                # Analysis Strategy
-                analysis_strategy = visual_data.get('analysis_strategy', {})
-                if analysis_strategy:
-                    with st.expander("🔧 Analysis Strategy Used"):
-                        st.json(analysis_strategy)
-                        st.markdown(f"**Approach:** {analysis_strategy.get('approach', 'Unknown')}")
-                        st.markdown(f"**Depth:** {analysis_strategy.get('depth', 'Unknown')}")
-                        st.markdown(f"**Focus Areas:** {', '.join(analysis_strategy.get('focus_areas', []))}")
-            
-            else:
-                st.warning("⚠️ No intelligent visual analysis data available")
-                st.markdown("**Possible reasons:**")
-                st.markdown("- Analysis failed to complete")
-                st.markdown("- Codebase structure not detected")
-                st.markdown("- No supported file types found")
-                
-                st.info("💡 The intelligent analyzer works best with Python, JavaScript, TypeScript, Java, and other common programming languages.")
-        
-        # NEW TAB 7: Evolution Analysis
-        with tab6:
-            st.subheader("📈 Code Evolution Analysis")
-            
-            if st.button("🕰️ Analyze Repository Evolution", key="evolution_button"):
-                with st.spinner("Analyzing repository evolution... This may take a few minutes"):
-                    try:
-                        # Get repo path from analysis results or use a temporary path
-                        analysis_results = st.session_state.get('analysis_results', {})
-                        if not analysis_results:
-                            st.error("Please analyze a repository first to run evolution analysis.")
-                            st.stop()
-                        
-                        # For now, we'll show a placeholder since we need the actual repo to be cloned
-                        # Initialize evolution analyzer (this would need the actual cloned repo path)
-                        st.info("Evolution analysis requires access to the Git repository. This feature works best with local repositories.")
-                        
-                        # Show mock evolution data for demonstration
-                        evolution_report = {
-                            'summary': {
-                                'functions_tracked': 25,
-                                'rapidly_growing_functions': 8,
-                                'bug_prone_files': 3,
-                                'refactoring_needed': 5
-                            },
-                            'growth_alerts': [
-                                {
-                                    'function': 'analyze_repository',
-                                    'type': 'rapid_growth',
-                                    'growth_rate': 45,
-                                    'start_lines': 120,
-                                    'end_lines': 174,
-                                    'recommendation': 'Consider breaking this function into smaller components'
-                                }
-                            ],
-                            'bug_patterns': [
-                                {
-                                    'file': 'app.py',
-                                    'bug_fixes': 7,
-                                    'recommendation': 'Consider adding more comprehensive error handling'
-                                }
-                            ],
-                            'refactoring_predictions': [
-                                {
-                                    'function': 'generate_file_explanations',
-                                    'priority': 'high',
-                                    'current_lines': 85,
-                                    'predicted_lines': 120,
-                                    'recommendation': 'Extract file prioritization logic into separate function'
-                                }
-                            ],
-                            'insights': [
-                                '🔍 Your codebase shows healthy growth patterns',
-                                '📈 Main complexity is concentrated in the app.py file',
-                                '🛠️ Consider modularizing the analysis pipeline'
-                            ],
-                            'timeline_data': {
-                                'file_growth': [
-                                    {
-                                        'file': 'app.py',
-                                        'data_points': [
-                                            ('2024-01-01', 500),
-                                            ('2024-02-01', 750),
-                                            ('2024-03-01', 1200),
-                                            ('2024-04-01', 1800),
-                                            ('2024-05-01', 2400)
-                                        ]
-                                    }
-                                ]
-                            }
-                        }
-                        
-                        # Note: Actual evolution analysis would require the cloned repository
-                        # evolution_report = evolution_analyzer.analyze_evolution(months_back=6)
-                        
-                        # Display results
-                        st.success("Evolution analysis complete!")
-                        
-                        # Summary metrics
-                        col1, col2, col3, col4 = st.columns(4)
-                        with col1:
-                            st.metric("Functions Tracked", 
-                                     evolution_report['summary']['functions_tracked'])
-                        with col2:
-                            st.metric("Rapid Growth", 
-                                     evolution_report['summary']['rapidly_growing_functions'],
-                                     delta="functions")
-                        with col3:
-                            st.metric("Bug-Prone Files", 
-                                     evolution_report['summary']['bug_prone_files'])
-                        with col4:
-                            st.metric("Refactoring Needed", 
-                                     evolution_report['summary']['refactoring_needed'])
-                        
-                        # Growth Alerts
-                        if evolution_report['growth_alerts']:
-                            st.markdown("### 📊 Growth Alerts")
-                            for alert in evolution_report['growth_alerts'][:5]:
-                                with st.expander(f"⚠️ {alert['function']}"):
-                                    if alert['type'] == 'rapid_growth':
-                                        st.write(f"**Growth Rate:** {alert['growth_rate']:.0f}%")
-                                        st.write(f"**Lines:** {alert['start_lines']} → {alert['end_lines']}")
-                                    elif alert['type'] == 'complexity_growth':
-                                        st.write(f"**Complexity:** {alert['start_complexity']} → {alert['end_complexity']}")
-                                    st.info(alert['recommendation'])
-                        
-                        # Bug Patterns
-                        if evolution_report['bug_patterns']:
-                            st.markdown("### 🐛 Bug-Prone Files")
-                            for pattern in evolution_report['bug_patterns'][:5]:
-                                st.warning(f"**{pattern['file']}** - {pattern['bug_fixes']} bug fixes")
-                                st.caption(pattern['recommendation'])
-                        
-                        # Refactoring Predictions
-                        if evolution_report['refactoring_predictions']:
-                            st.markdown("### 🔮 Refactoring Predictions")
-                            for prediction in evolution_report['refactoring_predictions'][:5]:
-                                urgency = "🔴" if prediction['priority'] == 'high' else "🟡"
-                                st.write(f"{urgency} **{prediction['function']}**")
-                                st.write(f"Current: {prediction['current_lines']} lines → "
-                                       f"Predicted: {prediction['predicted_lines']} lines")
-                                st.info(prediction['recommendation'])
-                        
-                        # Insights
-                        st.markdown("### 💡 Key Insights")
-                        for insight in evolution_report['insights']:
-                            st.write(insight)
-                            
-                        # Visualizations
-                        if evolution_report['timeline_data']['file_growth']:
-                            st.markdown("### 📈 File Growth Over Time")
-                            
-                            # Create plotly chart
-                            import plotly.graph_objects as go
-                            
-                            fig = go.Figure()
-                            for file_data in evolution_report['timeline_data']['file_growth'][:5]:
-                                dates = [point[0] for point in file_data['data_points']]
-                                lines = [point[1] for point in file_data['data_points']]
-                                
-                                fig.add_trace(go.Scatter(
-                                    x=dates, y=lines,
-                                    mode='lines+markers',
-                                    name=file_data['file']
-                                ))
-                            
-                            fig.update_layout(
-                                title="File Size Evolution",
-                                xaxis_title="Date",
-                                yaxis_title="Lines of Code"
-                            )
-                            st.plotly_chart(fig, use_container_width=True)
-                            
-                    except Exception as e:
-                        st.error(f"Evolution analysis failed: {str(e)}")
-        
-        # NEW TAB 8: Code Mentor
-        with tab7:
-            st.subheader("🎓 Interactive Code Mentor")
             
             # Initialize mentor in session state
             if 'code_mentor' not in st.session_state:
@@ -2406,14 +2402,14 @@ if 'analysis_results' in st.session_state:
                     
                     # Show code examples if available
                     if isinstance(message, dict) and message.get('code_examples'):
-                        st.markdown("**📝 Relevant Code Examples:**")
+                        st.markdown("**Relevant Code Examples:**")
                         for example in message['code_examples']:
                             st.code(f"# {example['description']}\n# See: {example['file']}")
                     
                     # Show exercise if created
                     if isinstance(message, dict) and message.get('exercise'):
                         exercise = message['exercise']
-                        with st.expander("📚 Exercise Details"):
+                        with st.expander("Exercise Details"):
                             st.write(exercise['content'])
                             
                             # Setup commands
@@ -2424,19 +2420,19 @@ if 'analysis_results' in st.session_state:
                             # Hint system
                             col1, col2, col3 = st.columns(3)
                             with col1:
-                                if st.button("💡 Hint 1", key=f"hint1_{exercise['id']}"):
+                                if st.button("Hint 1", key=f"hint1_{exercise['id']}"):
                                     hint = asyncio.run(
                                         st.session_state.code_mentor.provide_hint(exercise['id'], 1)
                                     )
                                     st.info(hint)
                             with col2:
-                                if st.button("💡 Hint 2", key=f"hint2_{exercise['id']}"):
+                                if st.button("Hint 2", key=f"hint2_{exercise['id']}"):
                                     hint = asyncio.run(
                                         st.session_state.code_mentor.provide_hint(exercise['id'], 2)
                                     )
                                     st.info(hint)
                             with col3:
-                                if st.button("💡 Hint 3", key=f"hint3_{exercise['id']}"):
+                                if st.button("Hint 3", key=f"hint3_{exercise['id']}"):
                                     hint = asyncio.run(
                                         st.session_state.code_mentor.provide_hint(exercise['id'], 3)
                                     )
@@ -2461,7 +2457,7 @@ if 'analysis_results' in st.session_state:
                                         st.write(result['feedback'])
                                         if result['exercise_completed']:
                                             st.balloons()
-                                            st.success("🎉 Exercise completed successfully!")
+                                            st.success("Exercise completed successfully!")
                                         
                                         # Next steps
                                         if result['next_steps']:
@@ -2473,7 +2469,7 @@ if 'analysis_results' in st.session_state:
             if st.session_state.get('mentor_messages'):
                 last_message = st.session_state.mentor_messages[-1]
                 if last_message.get('follow_up_suggestions') or last_message.get('suggestions'):
-                    st.markdown("**💭 Suggested Questions:**")
+                    st.markdown("**Suggested Questions:**")
                     suggestions = (last_message.get('follow_up_suggestions') or 
                                  last_message.get('suggestions', []))
                     
@@ -2507,7 +2503,7 @@ if 'analysis_results' in st.session_state:
             
             # Learning progress sidebar
             with st.sidebar:
-                st.markdown("### 📊 Learning Progress")
+                st.markdown("### Learning Progress")
                 
                 mentor = st.session_state.get('code_mentor')
                 if mentor:
@@ -2527,133 +2523,6 @@ if 'analysis_results' in st.session_state:
                     # Completed exercises
                     completed = [e for e in context['generated_exercises'] if e.get('completed')]
                     if completed:
-                        st.markdown("**✅ Completed Exercises:**")
+                        st.markdown("**Completed Exercises:**")
                         for exercise in completed:
                             st.write(f"• {exercise['topic']} ({exercise['difficulty']})")
-        
-        # NEW TAB 9: Performance Prediction
-        with tab8:
-            st.subheader("⚡ Performance Prediction Engine")
-            
-            # Get analysis data
-            if 'analysis_results' not in st.session_state:
-                st.warning("Please analyze a repository first to predict performance.")
-                st.stop()
-            
-            detailed_files = st.session_state['analysis_results']['analysis']['detailed_files']
-            
-            # Performance analysis button
-            if st.button("🔍 Analyze Performance", key="perf_button"):
-                with st.spinner("Predicting performance bottlenecks..."):
-                    # Initialize performance predictor
-                    predictor = PerformancePredictor()
-                    
-                    # Run analysis
-                    perf_report = predictor.analyze_performance(detailed_files)
-                    
-                    # Store in session state
-                    st.session_state['performance_report'] = perf_report
-            
-            # Display results if available
-            if 'performance_report' in st.session_state:
-                report = st.session_state['performance_report']
-                
-                # Performance Score Card
-                col1, col2, col3, col4 = st.columns(4)
-                
-                with col1:
-                    # Display score with color coding
-                    score = report['score']
-                    grade = report['grade']
-                    
-                    score_color = {
-                        'A': '#4CAF50',
-                        'B': '#8BC34A', 
-                        'C': '#FFC107',
-                        'D': '#FF9800',
-                        'F': '#F44336'
-                    }.get(grade, '#757575')
-                    
-                    st.markdown(f"""
-                    <div style="text-align: center; padding: 20px; background-color: {score_color}; 
-                                color: white; border-radius: 10px;">
-                        <h1 style="margin: 0;">{score}/100</h1>
-                        <h3 style="margin: 0;">Grade: {grade}</h3>
-                    </div>
-                    """, unsafe_allow_html=True)
-                
-                with col2:
-                    st.metric("Total Issues", report['summary']['total_issues'])
-                    st.metric("Critical Issues", report['summary']['critical_issues'], 
-                             delta="-" + str(report['summary']['critical_issues']) if report['summary']['critical_issues'] > 0 else "0",
-                             delta_color="inverse")
-                
-                with col3:
-                    st.metric("Files Analyzed", report['summary']['files_analyzed'])
-                    st.metric("Functions Analyzed", report['summary']['functions_analyzed'])
-                
-                with col4:
-                    # Issue breakdown pie chart
-                    severity_counts = {
-                        'Critical': report['summary']['critical_issues'],
-                        'High': report['summary']['high_issues'],
-                        'Medium': len(report['issues_by_severity'].get('medium', [])),
-                        'Low': len(report['issues_by_severity'].get('low', []))
-                    }
-                    
-                    fig = go.Figure(data=[go.Pie(
-                        labels=list(severity_counts.keys()),
-                        values=list(severity_counts.values()),
-                        hole=.3,
-                        marker_colors=['#F44336', '#FF9800', '#FFC107', '#4CAF50']
-                    )])
-                    fig.update_layout(
-                        showlegend=False,
-                        height=200,
-                        margin=dict(t=0, b=0, l=0, r=0)
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
-                
-                # Performance Insights
-                st.markdown("### 💡 Performance Insights")
-                for insight in report['insights']:
-                    st.write(insight)
-                
-                # Critical Issues
-                if report['issues_by_severity'].get('critical'):
-                    st.markdown("### 🚨 Critical Performance Issues")
-                    for issue in report['issues_by_severity']['critical'][:5]:
-                        with st.expander(f"🔴 {issue.description}"):
-                            st.write(f"**Location:** `{issue.location}`")
-                            st.write(f"**Impact:** {issue.impact}")
-                            st.write(f"**Suggestion:** {issue.suggestion}")
-                            
-                            if issue.code_snippet:
-                                st.code(issue.code_snippet, language='python')
-                            
-                            if issue.estimated_complexity:
-                                st.write(f"**Complexity:** {issue.estimated_complexity}")
-                
-                # High Priority Issues
-                if report['issues_by_severity'].get('high'):
-                    st.markdown("### ⚠️ High Priority Issues")
-                    for issue in report['issues_by_severity']['high'][:5]:
-                        with st.expander(f"🟡 {issue.description}"):
-                            st.write(f"**Location:** `{issue.location}`")
-                            st.write(f"**Impact:** {issue.impact}")
-                            st.write(f"**Suggestion:** {issue.suggestion}")
-                            
-                            if issue.code_snippet:
-                                st.code(issue.code_snippet, language='python')
-                
-                # Performance Roadmap
-                if report.get('performance_roadmap'):
-                    st.markdown("### 🗺️ Performance Improvement Roadmap")
-                    for phase in report['performance_roadmap']:
-                        with st.expander(f"📋 {phase['phase']} ({phase['timeline']})"):
-                            st.write(phase['description'])
-                            for item in phase['items']:
-                                st.write(f"• **{item['title']}** - {item['description']}")
-                                st.caption(f"Impact: {item['impact']} | Effort: {item['effort']}")
-    else:
-        st.error(f"Analysis failed: {result.get('error', 'Unknown error')}")

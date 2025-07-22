@@ -33,52 +33,85 @@ class ModelService(ABC):
         pass
 
 class GeminiService(ModelService):
-    """Google Gemini API service"""
+    """Google Gemini API service with multi-key rotation"""
     
-    def __init__(self, api_key: str):
-        self.api_key = api_key
-        self.model = None
+    def __init__(self, api_keys: List[str]):
+        self.api_keys = api_keys if isinstance(api_keys, list) else [api_keys]
+        self.current_key_index = 0
+        self.models = {}
         self.available = False
         self.requests_made = 0
-        self.rate_limited = False
+        self.key_status = {}  # Track which keys are rate limited
         
         try:
             import google.generativeai as genai
-            genai.configure(api_key=api_key)
-            self.model = genai.GenerativeModel('gemini-1.5-flash')
-            self.available = True
-            logger.info("✅ Gemini service initialized")
+            self.genai = genai
+            
+            # Initialize all API keys
+            for i, api_key in enumerate(self.api_keys):
+                try:
+                    genai.configure(api_key=api_key)
+                    model = genai.GenerativeModel('gemini-1.5-flash')
+                    self.models[i] = model
+                    self.key_status[i] = {'rate_limited': False, 'requests': 0}
+                    # Gemini API key initialized silently
+                except Exception as e:
+                    logger.error(f"❌ Gemini API key {i+1} initialization failed: {e}")
+                    self.key_status[i] = {'rate_limited': True, 'requests': 0}
+            
+            # Check if at least one key is available
+            if any(not status['rate_limited'] for status in self.key_status.values()):
+                self.available = True
+                # Gemini service initialized silently
+            else:
+                logger.error("❌ No working Gemini API keys available")
+                
         except Exception as e:
             logger.error(f"❌ Gemini initialization failed: {e}")
             self.available = False
     
     async def generate_response(self, messages: List[Dict], **kwargs) -> str:
-        if not self.available or self.rate_limited:
+        if not self.available:
             raise Exception("Gemini service not available")
         
         # Convert messages to prompt
         prompt = self._convert_messages_to_prompt(messages)
         
         max_retries = kwargs.get('max_retries', 3)
-        for attempt in range(max_retries):
-            try:
-                response = self.model.generate_content(prompt)
-                if response.text:
-                    self.requests_made += 1
-                    return response.text.strip()
-                else:
-                    raise Exception("Empty response from Gemini")
-            except Exception as e:
-                error_msg = str(e).lower()
-                if 'quota' in error_msg or 'rate limit' in error_msg:
-                    self.rate_limited = True
-                    raise Exception("Rate limit exceeded")
-                elif attempt == max_retries - 1:
-                    raise Exception(f"Gemini API failed after {max_retries} attempts")
-                else:
-                    await asyncio.sleep(2 ** attempt)
         
-        raise Exception("Gemini API failed")
+        # Try all available keys
+        for key_attempt in range(len(self.api_keys)):
+            current_key = self._get_next_available_key()
+            if current_key is None:
+                raise Exception("All Gemini API keys are rate limited")
+            
+            # Configure the current API key
+            self.genai.configure(api_key=self.api_keys[current_key])
+            model = self.models[current_key]
+            
+            for attempt in range(max_retries):
+                try:
+                    response = model.generate_content(prompt)
+                    if response.text:
+                        self.requests_made += 1
+                        self.key_status[current_key]['requests'] += 1
+                        logger.info(f"✅ Request successful with API key {current_key + 1}")
+                        return response.text.strip()
+                    else:
+                        raise Exception("Empty response from Gemini")
+                except Exception as e:
+                    error_msg = str(e).lower()
+                    if 'quota' in error_msg or 'rate limit' in error_msg or 'resource_exhausted' in error_msg:
+                        self.key_status[current_key]['rate_limited'] = True
+                        logger.warning(f"⚠️ API key {current_key + 1} rate limited, trying next key")
+                        break  # Try next key
+                    elif attempt == max_retries - 1:
+                        logger.error(f"❌ API key {current_key + 1} failed after {max_retries} attempts")
+                        break  # Try next key
+                    else:
+                        await asyncio.sleep(2 ** attempt)
+        
+        raise Exception("All Gemini API keys failed or are rate limited")
     
     def _convert_messages_to_prompt(self, messages: List[Dict]) -> str:
         prompt = ""
@@ -89,11 +122,25 @@ class GeminiService(ModelService):
                 prompt += f"User: {msg['content']}\n\n"
         return prompt
     
+    def _get_next_available_key(self) -> Optional[int]:
+        """Get the next available API key index"""
+        # Check all keys starting from current index
+        for i in range(len(self.api_keys)):
+            key_index = (self.current_key_index + i) % len(self.api_keys)
+            if not self.key_status.get(key_index, {}).get('rate_limited', True):
+                self.current_key_index = (key_index + 1) % len(self.api_keys)
+                return key_index
+        return None
+    
     def is_available(self) -> bool:
-        return self.available and not self.rate_limited
+        if not self.available:
+            return False
+        # Check if any key is available
+        return any(not status.get('rate_limited', True) for status in self.key_status.values())
     
     def get_service_name(self) -> str:
-        return "Google Gemini"
+        available_keys = sum(1 for status in self.key_status.values() if not status.get('rate_limited', True))
+        return f"Google Gemini ({available_keys}/{len(self.api_keys)} keys available)"
 
 class OllamaService(ModelService):
     """Local Ollama service"""
@@ -103,7 +150,8 @@ class OllamaService(ModelService):
         self.available = self._check_ollama_availability()
         
         if self.available:
-            logger.info(f"✅ Ollama service initialized with {model_name}")
+            # Ollama service initialized silently
+            pass
         else:
             logger.warning("❌ Ollama service not available")
     
@@ -315,9 +363,7 @@ class ModelServiceManager:
         # Set fallback services
         self.fallback_services = [s for s in self.services if s != self.primary_service]
         
-        logger.info(f"Initialized {len(self.services)} model services")
-        if self.primary_service:
-            logger.info(f"Primary service: {self.primary_service.get_service_name()}")
+        # Model services initialized silently
     
     async def generate_response(self, messages: List[Dict], context: str = "analysis") -> str:
         """Generate response with intelligent fallback"""

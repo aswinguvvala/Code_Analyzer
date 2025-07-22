@@ -48,3 +48,11 @@ Thumbs.db
 web_cache/
 storage/
 logs/
+cache/
+*.json.cache
+*.log
+
+# Environment files
+.env
+secrets.toml
+.streamlit/secrets.toml

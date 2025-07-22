@@ -18,6 +18,7 @@ google-generativeai>=0.3.0  # For Gemini API
 openai>=1.0.0              # For OpenAI API
 boto3>=1.34.0              # For AWS Bedrock
 anthropic>=0.7.0           # For Anthropic Claude (alternative)
+requests>=2.25.0           # For HTTP requests (Ollama fallback)
 
 # Optional dependencies for specific deployments
 # streamlit-mermaid>=0.1.0  # For diagram rendering (optional)
