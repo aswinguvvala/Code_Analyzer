@@ -1006,9 +1006,11 @@ class RepositoryAnalyzer:
             try:
                 self.gemini_service = GeminiService(gemini_api_keys)
                 if self.gemini_service.is_available():
-                    st.success(f"Gemini service initialized with {len(gemini_api_keys)} API keys")
+                    # Gemini service initialized silently
+                    pass
                 else:
-                    st.warning("Warning: Gemini service initialized but no keys are available")
+                    # Gemini service initialized but no keys are available - silent
+                    pass
             except Exception as e:
                 st.error(f"Failed to initialize Gemini service: {e}")
                 self.gemini_service = None
@@ -2219,7 +2221,7 @@ def get_analyzer():
 analyzer = get_analyzer()
 
 # How to Use section
-if st.button("How to Use"):
+with st.expander("How to Use"):
     st.info("""
     **Simple Steps:**
     1. Paste any GitHub repository URL below
