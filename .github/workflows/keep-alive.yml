@@ -1,0 +1,47 @@
+name: Keep Streamlit Deployment Active
+
+on:
+  schedule:
+    # Run every 5 hours (at minute 0 of every 5th hour)
+    - cron: '0 */5 * * *'
+  workflow_dispatch: # Allow manual triggering
+
+jobs:
+  keep-alive:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        fetch-depth: 0
+    
+    - name: Configure Git
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+    
+    - name: Create keep-alive commit
+      run: |
+        # Determine which message to use based on run number
+        RUN_NUMBER=${{ github.run_number }}
+        
+        if [ $((RUN_NUMBER % 2)) -eq 1 ]; then
+          COMMIT_MESSAGE="🚀 Keep deployment active - Auto commit $(date '+%Y-%m-%d %H:%M:%S UTC')"
+        else
+          COMMIT_MESSAGE="⚡ Deployment maintenance - Auto commit $(date '+%Y-%m-%d %H:%M:%S UTC')"
+        fi
+        
+        echo "Using commit message: $COMMIT_MESSAGE"
+        
+        # Create empty commit
+        git commit --allow-empty -m "$COMMIT_MESSAGE"
+        
+        # Push changes
+        git push origin main
+    
+    - name: Log success
+      run: |
+        echo "✅ Keep-alive commit created successfully at $(date)"
+        echo "Next run will be in 5 hours"
